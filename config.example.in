@@ -388,8 +388,8 @@
 # Which resampling library to use. Possible choices: SRC (libsamplerate), Speex, soxr
 #ResampleLibrary = SRC
 
-# Which resampling method to use.  There are a few methods of resampling
-# sound supported by libresamplerate.  The default is 'Linear') which is
+# Quality of SRC resampler
+# There are a few methods of resampling.  The default is 'Linear') which is
 # also the fastest.  A better description can be found at:
 #
 #    http://www.mega-nerd.com/libsamplerate/api_misc.html#Converters
@@ -417,6 +417,17 @@
 # pro audio work. Quality 0 usually has a decent sound (certainly better than
 # using linear interpolation resampling), but artifacts may be heard.
 #SpeexResampleQuality = 3
+
+# Quality of soxr resampler (0 to 10).
+#   0   Quick cubic interpolation (SOXR_QQ)
+#   1   Low 16-bit with larger rolloff (SOXR_LQ)
+#   2   Medium 16-bit with medium rolloff (SOXR_MQ)
+#   4   High quality (SOXR_20_BITQ, SOXR_HQ)
+#   6   Very high quality (SOXR_28_BITQ,SOXR_VHQ)
+#   8   Equivalent to SRC 'Best sinc' method
+#   9   Equivalent to SRC 'Medium sinc' method
+#  10   Equivalent to SRC 'Fast sinc' method
+#SoxrResampleQuality = 4
 
 # Enable resample. When set to 1 resampling is done when necessary. When set
 # to 2, resampling is forced on to MaxSamplerate. When set to 0 the device is

@@ -1051,17 +1051,18 @@ int audio_conv_new (struct audio_conversion *conv,
 		else if (!strcasecmp(options_get_symb("ResampleLibrary"),"soxr")) {
 #ifdef HAVE_SOXR
 			soxr_error_t err;
+			soxr_quality_spec_t quality = soxr_quality_spec(options_get_int ("SoxrResampleQuality"), 0);
 /*			switch (sizeof(float))
 				case 4:
-					conv->soxr = soxr_create ( from->rate, to->rate, to->channels, &err, {SOXR_FLOAT32_I, SOXR_FLOAT32_I}, SOXR_MQ, NULL );
+					conv->soxr = soxr_create ( from->rate, to->rate, to->channels, &err, {SOXR_FLOAT32_I, SOXR_FLOAT32_I}, quality, NULL );
 					break;
 				case 8:
-					conv->soxr = soxr_create ( from->rate, to->rate, to->channels, &err, {SOXR_FLOAT64_I, SOXR_FLOAT64_I}, SOXR_MQ, NULL );
+					conv->soxr = soxr_create ( from->rate, to->rate, to->channels, &err, {SOXR_FLOAT64_I, SOXR_FLOAT64_I}, quality, NULL );
 					break;
 				default:
 					error ("SoX resampling not supported for sizeof(float)=%d!",sizeof(float));
 					return 0;*/
-			conv->soxr = soxr_create ( from->rate, to->rate, to->channels, &err, NULL, NULL, NULL );
+			conv->soxr = soxr_create ( from->rate, to->rate, to->channels, &err, NULL, &quality, NULL );
 			if (err) {
 				error ("Can't resample with SoX from %dHz to %dHz: %s",
 						from->rate, to->rate, soxr_strerror (err));
