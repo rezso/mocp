@@ -28,5 +28,6 @@ m4_include(decoder_plugins/speex/speex.m4)
 m4_include(decoder_plugins/timidity/timidity.m4)
 m4_include(decoder_plugins/vorbis/vorbis.m4)
 m4_include(decoder_plugins/wavpack/wavpack.m4)
+m4_include(decoder_plugins/xmp/xmp.m4)
 
 AC_CONFIG_FILES([decoder_plugins/Makefile])

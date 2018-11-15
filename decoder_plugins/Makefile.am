@@ -55,3 +55,7 @@ endif
 if BUILD_speex
     SUBDIRS += speex
 endif
+
+if BUILD_xmp
+    SUBDIRS += xmp
+endif
