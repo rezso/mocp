@@ -657,12 +657,13 @@ void options_init ()
 	                 CHECK_FUNCTION);
 
 	add_symb ("ResampleLibrary", "SRC",
-	                 CHECK_SYMBOL(3), "SRC", "Speex", "soxr");
+	                 CHECK_SYMBOL(4), "SRC", "Speex", "soxr", "zita");
 	add_symb ("SRCResampleMethod", "Linear",
 	                 CHECK_SYMBOL(5), "SincBestQuality", "SincMediumQuality",
 	                                  "SincFastest", "ZeroOrderHold", "Linear");
 	add_int  ("SpeexResampleQuality", 3, CHECK_RANGE(1), 0, 10);
 	add_int  ("SoxrResampleQuality", 4, CHECK_RANGE(1), 0, 10);
+	add_int  ("ZitaResampleQuality", 48, CHECK_RANGE(1), 16, 96);
 	add_int  ("EnableResample", 0, CHECK_RANGE(1), 0, 2);
 	add_int  ("MaxSamplerate", 0, CHECK_RANGE(1), 0, 500000);
 	add_int  ("MaxChannels", 0, CHECK_RANGE(1), 0, 500000);

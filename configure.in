@@ -420,6 +420,24 @@ then
 			   [true])
 fi
 
+dnl zita
+AC_ARG_WITH(zita, AS_HELP_STRING([--without-zita],
+                                       [Compile without Zita resampler]))
+COMPILE_ZITA="no"
+if test "x$with_soxr" != "xno" -a "x$enable_internal_float" != "xno"
+then
+	AC_LANG_PUSH([C++])
+	AC_CHECK_HEADERS([zita-resampler/resampler.h],
+				[EXTRA_OBJS="$EXTRA_OBJS audio_conversion_zita.o"
+				EXTRA_LIBS="$EXTRA_LIBS -lzita-resampler"
+				AC_DEFINE([HAVE_ZITA], 1,
+				     [Define if you have Zita resampler])
+				AC_DEFINE([HAVE_RESAMPLER], 1,
+				     [Define if you have any resampler])
+				COMPILE_ZITA="yes"],)
+	AC_LANG_POP
+fi
+
 dnl Decoder plugins
 m4_include(decoder_plugins/decoders.m4)
 
@@ -497,6 +515,7 @@ echo "Network streams:    "$COMPILE_CURL
 echo "Resampling (SRC):   "$COMPILE_SAMPLERATE
 echo "Resampling (Speex): "$COMPILE_SPEEXRESAMPLER
 echo "Resampling (soxr):  "$COMPILE_SOXR
+echo "Resampling (Zita):  "$COMPILE_ZITA
 echo "MIME magic:         "$COMPILE_MAGIC
 echo "-----------------------------------------------------------------------"
 echo

@@ -429,6 +429,12 @@
 #  10   Equivalent to SRC 'Fast sinc' method
 #SoxrResampleQuality = 4
 
+# Quality of Zita resampler (16 to 96). Equal to half the length of the
+# symmetrical FIR filter expressed in samples at the rate F_min. According to
+# documentation, 32 should provide very high quality for F_min equal to 48 kHz
+# or higher, while 48 should be sufficient for an F_min of 44.1 kHz
+#ZitaResampleQuality 48
+
 # Enable resample. When set to 1 resampling is done when necessary. When set
 # to 2, resampling is forced on to MaxSamplerate. When set to 0 the device is
 # opened with the file's rate.

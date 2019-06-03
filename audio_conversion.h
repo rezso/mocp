@@ -39,6 +39,9 @@ struct audio_conversion
 #ifdef HAVE_SOXR
 	soxr_t soxr;
 #endif
+#ifdef HAVE_ZITA
+	void* zita;
+#endif
 
 #ifdef HAVE_RESAMPLER
 	float *resample_buf;

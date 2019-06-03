@@ -38,6 +38,10 @@
 # include <soxr.h>
 #endif
 
+#ifdef HAVE_ZITA
+# include "audio_conversion_zita.h"
+#endif
+
 #define DEBUG
 
 #include "common.h"
@@ -1076,6 +1080,18 @@ int audio_conv_new (struct audio_conversion *conv,
 			return 0;
 #endif
 		}
+		else if (!strcasecmp(options_get_symb("ResampleLibrary"),"zita")) {
+#ifdef HAVE_ZITA
+			if (zita_init (conv)) {
+				error ("Can't resample with zita from %dHz to %dHz, channels %d",
+						from->rate, to->rate, to->channels);
+				return 0;
+			}
+#else
+			error ("Zita resampling not supported!");
+			return 0;
+#endif
+		}
 		else {
 			error ("Unknown resampling library.");
 			return 0;
@@ -1091,6 +1107,10 @@ int audio_conv_new (struct audio_conversion *conv,
 #ifdef HAVE_SOXR
 		conv->soxr = NULL;
 #endif
+#ifdef HAVE_ZITA
+		conv->zita = NULL;
+#endif
+
 	}
 
 #ifdef HAVE_RESAMPLER
@@ -1549,6 +1569,19 @@ char *audio_conv (struct audio_conversion *conv, const char *buf,
 	}
 #endif
 
+#ifdef HAVE_ZITA
+	if (!strcasecmp(options_get_symb("ResampleLibrary"),"zita") && (conv->from.rate != conv->to.rate)) {
+		char *new_sound = (char *)zita_resample_sound (conv,
+				(float *)curr_sound,
+				*conv_len / sizeof(float), conv->to.channels,
+				conv_len);
+		*conv_len *= sizeof(float);
+		if (curr_sound != buf)
+			free (curr_sound);
+		curr_sound = new_sound;
+	}
+#endif
+
 	if ((curr_sfmt & SFMT_MASK_FORMAT)
 			!= (conv->to.fmt & SFMT_MASK_FORMAT)) {
 
@@ -1630,4 +1663,9 @@ void audio_conv_destroy (struct audio_conversion *conv ASSERT_ONLY)
 	if (conv->soxr)
 		soxr_delete (conv->soxr);
 #endif
+#ifdef HAVE_ZITA
+	if (conv->zita)
+		zita_destroy (conv->zita);
+#endif
+
 }
