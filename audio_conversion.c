@@ -986,6 +986,9 @@ int audio_conv_new (struct audio_conversion *conv,
 	assert (from->rate != to->rate || from->fmt != to->fmt
 			|| from->channels != to->channels);
 
+	conv->from = *from;
+	conv->to = *to;
+
 	if (from->channels != to->channels) {
 
 		/* the only conversion we can do */
@@ -1089,9 +1092,6 @@ int audio_conv_new (struct audio_conversion *conv,
 		conv->soxr = NULL;
 #endif
 	}
-
-	conv->from = *from;
-	conv->to = *to;
 
 #ifdef HAVE_RESAMPLER
 	conv->resample_buf = NULL;
