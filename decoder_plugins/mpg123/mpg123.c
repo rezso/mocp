@@ -54,10 +54,10 @@ char* safe_string (char text[30])
 	char *out;
 
 	int n = 0;
-	while (text[n] != 0 && n < 29) {
+	while (n < 29 && text[n] != 0) {
 		n++;
 	}
-	while (text[n] == ' ' && n > 0) {
+	while (n > 0 && text[n] == ' ') {
 		n--;
 	}
 
