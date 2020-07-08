@@ -210,84 +210,88 @@ static void mpg123_open_stream_internal (struct mpg123_data *data)
 	mpg123_init();
 
 	data->mf = mpg123_new (NULL, &res);
-	mpg123_replace_reader_handle(data->mf,read_cb,seek_cb,NULL);
 
-	if (data->mf == NULL)
-	{
-	  mpg123_err = (char*) mpg123_plain_strerror (res);
-	}
-	else
-	{
-		const long *rates;
-		size_t rate_count;
-		size_t i;
-		mpg123_format_none(data->mf);
-		mpg123_rates(&rates, &rate_count);
+	if (data->mf == NULL) goto err;
 
-	#ifdef INTERNAL_FLOAT
-		data->encoding = SFMT_FLOAT|SFMT_NE;
-		debug("TG: selected FLOAT");
-		for(i=0; i<rate_count; ++i)
-			switch (sizeof(float)) {
-			case 4:
-				mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
-				              MPG123_ENC_FLOAT_32);
-				break;
-			case 8:
-				mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
-				              MPG123_ENC_FLOAT_64);
-				break;
-			default:
-				mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
-				              MPG123_ENC_SIGNED_32);
-				data->encoding = SFMT_S32|SFMT_NE;
-				debug("TG: unsupported sizeof(float): %zu, falling back to S32",
-				      sizeof(float));
-				break;
-			}
-	#else
-		for(i=0; i<rate_count; ++i)
-			mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
-						MPG123_ENC_SIGNED_32);
-		data->encoding = SFMT_S32|SFMT_NE;
-		debug("TG: selected S32");
-	#endif
+	res = mpg123_replace_reader_handle(data->mf,read_cb,seek_cb,NULL);
+	if (res != MPG123_OK) goto err;
 
-		if (mpg123_open_handle (data->mf,data->stream) == MPG123_OK &&
-		    mpg123_getformat (data->mf,&rate,&ch,&enc) == MPG123_OK) {
-			debug ("Encoding: %i, sample rate: %li, channels: %i",enc,rate,ch);
-			data->sample_rate = rate;
-			data->channels = ch;
+	const long *rates;
+	size_t rate_count;
+	size_t i;
+	res = mpg123_format_none(data->mf);
+	if (res != MPG123_OK) goto err;
+	mpg123_rates(&rates, &rate_count);
 
-			mpg123_info(data->mf,&info);
-			debug ("Bitrate %i",info.bitrate);
-			data->bitrate = info.bitrate;
-
-			mpg123_scan(data->mf);
-			samples = mpg123_length(data->mf);
-			if (samples == MPG123_ERR)
-				data->duration = -1;
-			else
-				data->duration =samples/rate;
-			debug("Duration: %d, samples %lld",data->duration,(long long)samples);
-			file_size = io_file_size (data->stream);
-			if (data->duration > 0 && file_size != -1)
-				data->avg_bitrate = file_size / data->duration * 8;
-			get_tags (data->mf, data->tags);
-
-			debug("TG: active mpg123 decoder %s",mpg123_current_decoder(data->mf));
-
-			data->ok = 1;
-			return;
+#ifdef INTERNAL_FLOAT
+	data->encoding = SFMT_FLOAT|SFMT_NE;
+	debug("TG: selected FLOAT");
+	for(i=0; i<rate_count; ++i) {
+		switch (sizeof(float)) {
+		case 4:
+			res = mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
+							MPG123_ENC_FLOAT_32);
+			break;
+		case 8:
+			res = mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
+							MPG123_ENC_FLOAT_64);
+			break;
+		default:
+			res = mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
+							MPG123_ENC_SIGNED_32);
+			data->encoding = SFMT_S32|SFMT_NE;
+			debug("TG: unsupported sizeof(float): %zu, falling back to S32",
+					sizeof(float));
+			break;
 		}
-		else
-			mpg123_err = "Error opening handle or getting format";
+		if (res != MPG123_OK) goto err;
 	}
+#else
+	for(i=0; i<rate_count; ++i) {
+		res = mpg123_format(data->mf, rates[i], MPG123_MONO|MPG123_STEREO,
+					MPG123_ENC_SIGNED_32);
+		if (res != MPG123_OK) goto err;
+	}
+	data->encoding = SFMT_S32|SFMT_NE;
+	debug("TG: selected S32");
+#endif
 
+	res = mpg123_open_handle (data->mf,data->stream);
+	if (res != MPG123_OK) goto err;
+	res = mpg123_getformat (data->mf,&rate,&ch,&enc);
+	if (res != MPG123_OK) goto err;
+	debug ("Encoding: %i, sample rate: %li, channels: %i",enc,rate,ch);
+	data->sample_rate = rate;
+	data->channels = ch;
+
+	res = mpg123_info(data->mf,&info);
+	if (res != MPG123_OK) goto err;
+	debug ("Bitrate %i",info.bitrate);
+	data->bitrate = info.bitrate;
+
+	res = mpg123_scan(data->mf);
+	if (res != MPG123_OK) goto err;
+	samples = mpg123_length(data->mf);
+	if (samples == MPG123_ERR)
+		data->duration = -1;
+	else
+		data->duration =samples/rate;
+	debug("Duration: %d, samples %lld",data->duration,(long long)samples);
+	file_size = io_file_size (data->stream);
+	if (data->duration > 0 && file_size != -1)
+		data->avg_bitrate = file_size / data->duration * 8;
+	get_tags (data->mf, data->tags);
+
+	debug("TG: active mpg123 decoder %s", mpg123_current_decoder(data->mf));
+
+	data->ok = 1;
+	return;
+
+	err:
+	mpg123_err = xstrdup(mpg123_strerror(data->mf));
 	decoder_error (&data->error, ERROR_FATAL, 0, "%s", mpg123_err);
-	debug ("mpg123_new error: %s", mpg123_err);
+	debug ("mpg123 error: %s", mpg123_err);
 	mpg123_delete (data->mf);
-	mpg123_exit();
 	data->mf = NULL;
 	io_close (data->stream);
 }
