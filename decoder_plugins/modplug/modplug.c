@@ -163,9 +163,6 @@ static void *modplug_open (const char *file)
 
   if(data->modplugfile) {
     data->length = ModPlug_GetLength(data->modplugfile);
-  }
-
-  if(data->modplugfile) {
     debug ("Opened file %s", file);
   }
 

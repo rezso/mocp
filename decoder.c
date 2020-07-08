@@ -727,7 +727,6 @@ static void cleanup_preferences ()
 {
 	decoder_t_preference *pref, *next;
 
-	pref = preferences;
 	for (pref = preferences; pref; pref = next) {
 		next = pref->next;
 		free (pref);

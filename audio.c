@@ -324,10 +324,6 @@ static long sfmt_best_matching (const long formats_with_endian,
 			best = SFMT_S8;
 		else if (formats & SFMT_U8)
 			best = SFMT_U8;
-		else if (formats & SFMT_S24_3)
-			best = SFMT_S24_3;
-		else if (formats & SFMT_U24_3)
-			best = SFMT_U24_3;
 	}
 	else if (req == SFMT_FLOAT) {
 		if (formats & SFMT_S32)

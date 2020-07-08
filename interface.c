@@ -1379,8 +1379,6 @@ static void enter_first_dir ();
 /* Switch between the directory view and the playlist. */
 static void toggle_menu ()
 {
-	int num;
-
 	if (iface_in_plist_menu()) {
 		if (!cwd[0])
 			/* we were at the playlist from the startup */
@@ -1388,7 +1386,7 @@ static void toggle_menu ()
 		else
 			iface_switch_to_dir ();
 	}
-	else if ((num = plist_count(playlist)))
+	else if ((plist_count(playlist)))
 		iface_switch_to_plist ();
 	else
 		error ("The playlist is empty.");

@@ -176,7 +176,6 @@ static void ffmpeg_log_cb (void *unused ATTR_UNUSED, int level,
 	}
 #endif
 
-	len = strlen (msg);
 	for (len = strlen (msg); len > 0 && msg[len - 1] == '\n'; len -= 1)
 		msg[len - 1] = 0x00;
 
