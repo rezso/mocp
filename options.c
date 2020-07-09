@@ -376,6 +376,7 @@ static void add_path (const char *name, const char *value, options_t_check *chec
 		if (rc >= PATH_MAX)
 			fatal ("Path too long!");
 		options[pos].value.str = xstrdup (path);
+		free(path);
 	}
 	else
 		options[pos].value.str = xstrdup (value);
@@ -524,6 +525,7 @@ void options_set_path (const char *name, const char *value)
 		if (rc >= PATH_MAX)
 			fatal ("Path too long!");
 		options[opt].value.str = xstrdup (path);
+		free(path);
 	}
 	else
 		options[opt].value.str = xstrdup (value);

@@ -291,6 +291,7 @@ static void mpg123_open_stream_internal (struct mpg123_data *data)
 	mpg123_err = xstrdup(mpg123_strerror(data->mf));
 	decoder_error (&data->error, ERROR_FATAL, 0, "%s", mpg123_err);
 	debug ("mpg123 error: %s", mpg123_err);
+	free(mpg123_err);
 	mpg123_delete (data->mf);
 	data->mf = NULL;
 	io_close (data->stream);
