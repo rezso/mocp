@@ -272,7 +272,7 @@ static struct aac_data *aac_open_internal (struct io_stream *stream, const char 
 	neaac_cfg = NeAACDecGetCurrentConfiguration(data->decoder);
 	neaac_cfg->outputFormat = FAAD_FMT_16BIT;	/* force 16 bit audio */
 	neaac_cfg->downMatrix = 0;					/* disable downmixing */
-	neaac_cfg->dontUpSampleImplicitSBR = 0;		/* upsample, please! */
+	neaac_cfg->dontUpSampleImplicitSBR = 1;		/* don't upsample, please! */
 	NeAACDecSetConfiguration(data->decoder, neaac_cfg);
 
 	if (stream)
