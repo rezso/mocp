@@ -1841,9 +1841,8 @@ static void add_dir_plist ()
 	}
 
 	if (!strcmp(file, "..")) {
-		error ("Can't add '..'.");
 		free (file);
-		return;
+		file = xstrdup(cwd);
 	}
 
 	iface_set_status ("Reading directories...");
