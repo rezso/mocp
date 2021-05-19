@@ -200,6 +200,7 @@ static int moc_jack_init (struct output_driver_caps *caps)
 	caps->formats = SFMT_FLOAT;
 	rate = jack_get_sample_rate (client);
 	caps->max_channels = caps->min_channels = 2;
+	caps->max_rate = caps->min_rate = rate;
 
 	logit ("jack init");
 
