@@ -144,9 +144,10 @@ static void opus_tags (const char *file_name, struct file_tags *info, const int 
 		ogg_int64_t opus_time;
 
 		opus_time = op_pcm_total (of, -1);
-		if (opus_time >= 0)
+		if (opus_time >= 0) {
 			info->time = opus_time / 48000;
 			debug("Duration tags: %d, samples %lld",info->time,(long long)opus_time);
+		}
 	}
 
 	op_free (of);
