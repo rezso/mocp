@@ -1170,7 +1170,7 @@ void audio_seek (const int sec)
 		logit ("Seeking when nothing is played.");
 }
 
-void audio_jump_to (const int sec)
+void audio_jump_to (const float sec)
 {
 	int playing;
 
