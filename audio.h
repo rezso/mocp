@@ -250,7 +250,7 @@ int audio_get_bpf ();
 int audio_get_bps ();
 int audio_get_buf_fill ();
 void audio_close ();
-int audio_get_time ();
+float audio_get_time ();
 int audio_get_state ();
 int audio_get_prev_state ();
 void audio_plist_add (const char *file);

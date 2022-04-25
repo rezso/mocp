@@ -361,6 +361,9 @@ static void show_version ()
 #ifdef HAVE_SAMPLERATE
 	printf (" resample");
 #endif
+#ifdef HAVE_MPRIS
+	printf (" MPRIS/D-Bus");
+#endif
 	putchar ('\n');
 
 	rc = uname (&uts);

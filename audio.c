@@ -64,7 +64,7 @@ static pthread_t playing_thread = 0;  /* tid of play thread */
 static int play_thread_running = 0;
 
 /* currently played file */
-static int curr_playing = -1;
+int curr_playing = -1;
 /* file we played before playing songs from queue */
 static char *before_queue_fname = NULL;
 static char *curr_playing_fname = NULL;
@@ -72,7 +72,7 @@ static char *curr_playing_fname = NULL;
  * so we know that when the queue is empty, we should play the regular
  * playlist from the beginning. */
 static int started_playing_in_queue = 0;
-static pthread_mutex_t curr_playing_mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t curr_playing_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 static struct out_buf *out_buf;
 static struct hw_funcs hw;
@@ -93,8 +93,8 @@ static pthread_mutex_t request_mtx = PTHREAD_MUTEX_INITIALIZER;
 static struct plist playlist;
 static struct plist shuffled_plist;
 static struct plist queue;
-static struct plist *curr_plist; /* currently used playlist */
-static pthread_mutex_t plist_mtx = PTHREAD_MUTEX_INITIALIZER;
+struct plist *curr_plist; /* currently used playlist */
+pthread_mutex_t plist_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 /* Is the audio device opened? */
 static int audio_opened = 0;
@@ -975,7 +975,7 @@ int audio_send_pcm (const char *buf, const size_t size)
 }
 
 /* Get current time of the song in seconds. */
-int audio_get_time ()
+float audio_get_time ()
 {
 	return state != STATE_STOP ? out_buf_time_get (out_buf) : 0;
 }
