@@ -704,7 +704,7 @@ int audio_conv_new (struct audio_conversion *conv,
 		else
 			fatal ("Bad ResampleMethod option: %s", method);
 
-		conv->src_state = src_new (resample_type, to->channels, &err);
+		conv->src_state = src_new (resample_type, from->channels, &err);
 		if (!conv->src_state) {
 			error ("Can't resample from %dHz to %dHz: %s",
 					from->rate, to->rate, src_strerror (err));
@@ -997,7 +997,15 @@ static uint16_t *u24_to_u16 (uint32_t *in, const size_t samples)
 
 /* Do the sound conversion.  buf of length size is the sample buffer to
  * convert and the size of the converted sound is put into *conv_len.
- * Return the converted sound in malloc()ed memory. */
+ * Return the converted sound in malloc()ed memory.
+ *
+ * Conversion workflow:
+ *   1. Change endianness
+ *   2. Change sample format (to float or target SFMT if no resampling needed)
+ *   3. Resample
+ *   4. Change sample format to destination SFMT
+ *   5. Up/downmix channels
+*/
 char *audio_conv (struct audio_conversion *conv, const char *buf,
 		const size_t size, size_t *conv_len)
 {
@@ -1136,7 +1144,7 @@ char *audio_conv (struct audio_conversion *conv, const char *buf,
 	if (conv->from.rate != conv->to.rate) {
 		char *new_sound = (char *)resample_sound (conv,
 				(float *)curr_sound,
-				*conv_len / sizeof(float), conv->to.channels,
+				*conv_len / sizeof(float), conv->from.channels,
 				conv_len);
 		*conv_len *= sizeof(float);
 		if (curr_sound != buf)
