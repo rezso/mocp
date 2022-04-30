@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Music on Console
+Comment=Console music player
+Type=Application
+Version=1.0
+GenericName=Music player
+Icon=mocp
+Exec=mocp
+Categories=Audio;Music;Player;AudioVideo;
+Terminal=True

@@ -94,3 +94,9 @@ noinst_DATA = tools/README
 noinst_SCRIPTS = tools/md5check.sh tools/maketests.sh
 
 doc_DATA = config.example THANKS README README_equalizer keymap.example
+
+desktopdir = $(datadir)/applications
+desktop_DATA = mocp.desktop
+
+icondir = $(datadir)/icons/hicolor/scalable/apps
+icon_DATA = mocp.svg
