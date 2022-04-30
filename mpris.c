@@ -2,7 +2,7 @@
  * MOC - music on console
  * Copyright (C) 2009-2014 Ondřej Svoboda <ondrej@svobodasoft.cz>
  *
- * MPRIS (Media Player Remote Interfacing Specification) 1.0 implementation.
+ * MPRIS (Media Player Remote Interfacing Specification) 2.0 implementation.
  * This is a D-Bus interface to MOC.
  * All processing is done in a separate server thread.
  *
@@ -42,7 +42,6 @@ static DBusConnection *dbus_conn; /* Connection handle. */
 static DBusError dbus_err;        /* Error flag. */
 static DBusMessage *msg;          /* An incoming message. */
 static DBusMessageIter args_in, args_out;    /* Iterators for in- or outcoming messages' content. */
-static DBusMessageIter array, dict, variant; /* Iterators for containers only used in outgoing messages. */
 
 /* Shared with audio.c */
 /* Track number in the current playlist.
@@ -59,11 +58,21 @@ extern int server_quit;
 extern struct tags_cache *tags_cache;
 
 /* Flags to be changed by the server + their mutex. */
-static int mpris_track_changed = 0;
-static int mpris_status_changed = 0;
-static int mpris_caps_changed = 0;
-static int mpris_tracklist_changed = 0;
-static pthread_mutex_t mpris_mutex = PTHREAD_MUTEX_INITIALIZER;
+static bool mpris_track_changed = 0;
+static bool mpris_status_changed = 0;
+static bool mpris_caps_changed = 0;
+static bool mpris_tracklist_changed = 0;
+static bool mpris_seeked = 0;
+pthread_mutex_t mpris_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static const int MPRIS_TIMEOUT =			50;
+static const char* MPRIS_BUS_NAME =			"org.mpris.MediaPlayer2.moc";
+static const char* MPRIS_OBJECT =			"/org/mpris/MediaPlayer2";
+static const char* MPRIS_IFACE_ROOT =		"org.mpris.MediaPlayer2";
+static const char* MPRIS_IFACE_PLAYER =		"org.mpris.MediaPlayer2.Player";
+// static const char* MPRIS_IFACE_TRACKLIST =	"org.mpris.MediaPlayer2.TrackList";
+static const char* INTROSPECTION_IFACE =	"org.freedesktop.DBus.Introspectable";
+static const char* PROPERTIES_IFACE =		"org.freedesktop.DBus.Properties";
 
 /* Connection to D-Bus happens here. If it fails, for any reason, we just move
  * on as the MPRIS/D-Bus feature is not crucial for the server.
@@ -98,7 +107,7 @@ void mpris_init()
 		return;
 	}
 
-	logit("Everything went fine when connecting to D-Bus.");
+	logit("Successfully connected to D-Bus.");
 }
 
 /* Low-level wrappers for sending message arguments with possible error checking. */
@@ -111,51 +120,140 @@ static void msg_add_string(char **value)
 	}
 }
 
-static void msg_add_int32(int *value)
-{
-	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_INT32, value);
-}
+// static void msg_add_int32(int *value)
+// {
+// 	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_INT32, value);
+// }
+//
+// static void msg_add_uint16(unsigned short int *value)
+// {
+// 	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_UINT16, value);
+// }
 
-static void msg_add_uint16(unsigned short int *value)
+static void msg_add_dict_string(DBusMessageIter *array, char **key, char **value)
 {
-	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_UINT16, value);
-}
+	DBusMessageIter dict;
+	DBusMessageIter variant;
 
-/* Helper functions for sending bigger chunks of data or with some added logic. */
-
-static void mpris_send_tracklist_length()
-{
-	LOCK(plist_mtx);
-	int length = curr_plist != NULL ? plist_count(curr_plist) : 0;
-	UNLOCK(plist_mtx);
-	msg_add_int32(&length);
-}
-
-static void mpris_send_metadata_string_field(char **key, char **value)
-{
-	dbus_message_iter_open_container(&array, DBUS_TYPE_DICT_ENTRY, 0, &dict);
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
 		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
 		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "s", &variant);
 			dbus_message_iter_append_basic(&variant, DBUS_TYPE_STRING, value);
 		dbus_message_iter_close_container(&dict, &variant);
-	dbus_message_iter_close_container(&array, &dict);
+	dbus_message_iter_close_container(array, &dict);
+}
+
+static void msg_add_dict_bool(DBusMessageIter *array, char **key, dbus_bool_t *value)
+{
+	DBusMessageIter dict;
+	DBusMessageIter variant;
+
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
+		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
+		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "b", &variant);
+			dbus_message_iter_append_basic(&variant, DBUS_TYPE_BOOLEAN, value);
+		dbus_message_iter_close_container(&dict, &variant);
+	dbus_message_iter_close_container(array, &dict);
+}
+
+static void msg_add_dict_double(DBusMessageIter *array, char **key, double *value)
+{
+	DBusMessageIter dict;
+	DBusMessageIter variant;
+
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
+		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
+		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "d", &variant);
+			dbus_message_iter_append_basic(&variant, DBUS_TYPE_DOUBLE, value);
+		dbus_message_iter_close_container(&dict, &variant);
+	dbus_message_iter_close_container(array, &dict);
+}
+
+static void msg_add_dict_int64(DBusMessageIter *array, char **key, dbus_int64_t *value)
+{
+	DBusMessageIter dict;
+	DBusMessageIter variant;
+
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
+		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
+		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "x", &variant);
+			dbus_message_iter_append_basic(&variant, DBUS_TYPE_INT64, value);
+		dbus_message_iter_close_container(&dict, &variant);
+	dbus_message_iter_close_container(array, &dict);
+}
+
+static void msg_add_dict_string_as_array(DBusMessageIter *array, char **key, char **value)
+{
+	DBusMessageIter dict;
+	DBusMessageIter variant;
+	DBusMessageIter array_str;
+
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
+		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
+		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "as", &variant);
+			dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "s", &array_str);
+				dbus_message_iter_append_basic(&array_str, DBUS_TYPE_STRING, value);
+			dbus_message_iter_close_container(&variant, &array_str);
+		dbus_message_iter_close_container(&dict, &variant);
+	dbus_message_iter_close_container(array, &dict);
+}
+
+static void msg_add_dict_obj(DBusMessageIter *array, char **key, char **value)
+{
+	DBusMessageIter dict;
+	DBusMessageIter variant;
+
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
+		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
+		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "o", &variant);
+			dbus_message_iter_append_basic(&variant, DBUS_TYPE_OBJECT_PATH, value);
+		dbus_message_iter_close_container(&dict, &variant);
+	dbus_message_iter_close_container(array, &dict);
+}
+
+static void msg_add_dict_playback_status(DBusMessageIter *array)
+{
+	char* key;
+	char* val_s;
+
+	key = "PlaybackStatus";
+	switch (audio_get_state()) {
+		case STATE_PLAY:
+			val_s = "Playing";
+			break;
+		case STATE_PAUSE:
+			val_s = "Paused";
+			break;
+		case STATE_STOP:
+			val_s = "Stopped";
+	}
+	msg_add_dict_string(array, &key, &val_s);
 }
 
 /* TODO: If tags are missing, at least a title made from file name should be returned! */
-static void mpris_send_metadata(int item)
+static void msg_add_dict_metadata(DBusMessageIter *array)
 {
-	char *location_key = "location";
-	char *title_key = "title";
-	char *artist_key = "artist";
-	char *location_val = NULL;
-	char *file = NULL;
-	struct file_tags *tags;
+	DBusMessageIter array_meta;
+	DBusMessageIter dict;
+	DBusMessageIter variant;
 
-	if (item >= 0) {
-		LOCK(plist_mtx);
-		file = plist_get_file(curr_plist, item);
-		UNLOCK(plist_mtx);
-	}
+	char* key;
+	char* val_s;
+	dbus_int64_t val_x;
+
+	char *file;
+	struct file_tags *tags;
+	int curr;
+
+	LOCK(curr_playing_mtx);
+	curr = curr_playing;
+	UNLOCK(curr_playing_mtx);
+	if (curr < 0) return;
+
+	LOCK(plist_mtx);
+	file = plist_get_file(curr_plist, curr);
+	UNLOCK(plist_mtx);
+
 	if (file == NULL) {
 		file = xstrdup("");
 		tags = tags_new();
@@ -163,105 +261,98 @@ static void mpris_send_metadata(int item)
 		tags = tags_cache_get_immediate(tags_cache, file, TAGS_COMMENTS | TAGS_TIME);
 	}
 
-	if (!is_url(file)) {
-		location_val = (char *)xmalloc(sizeof(char) * (7 + strlen(file) + 1));
-		strcpy(location_val, "file://");
-		strcat(location_val, file);
-	} else {
-		location_val = xstrdup(file);
-	}
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
+		key = "Metadata";
+		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, &key);
+		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "a{sv}", &variant);
+			dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "{sv}", &array_meta);
+				key = "mpris:trackid";
+				val_s = "moc/track/xxxx"; // TODO: not unique, not very conformant with specs
+				msg_add_dict_string(&array_meta, &key, &val_s); // type o?
+				key = "mpris:length";
+				val_x = tags->time * 1000000;
+				msg_add_dict_int64(&array_meta, &key, &val_x);
+				key = "xesam:title";
+				if (tags->title)
+					val_s = tags->title;
+				else
+					val_s = "[unknown title]";
+				msg_add_dict_string(&array_meta, &key, &val_s);
+				key = "xesam:artist";
+				if (tags->artist)
+					val_s = tags->artist;
+				else
+					val_s = "[unknown artist]";
+				msg_add_dict_string_as_array(&array_meta, &key, &val_s);
+				key = "xesam:album";
+				if (tags->album)
+					val_s = tags->album;
+				else
+					val_s = "[unknown album]";
+				msg_add_dict_string(&array_meta, &key, &val_s);
+
+			dbus_message_iter_close_container(&variant, &array_meta);
+		dbus_message_iter_close_container(&dict, &variant);
+	dbus_message_iter_close_container(array, &dict);
+
 	free(file);
-
-	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
-	mpris_send_metadata_string_field(&location_key, &location_val);
-	if (tags->title != NULL)
-		mpris_send_metadata_string_field(&title_key, &tags->title);
-	if (tags->artist != NULL)
-		mpris_send_metadata_string_field(&artist_key, &tags->artist);
-
-	dbus_message_iter_close_container(&args_out, &array);
-
-	free(location_val);
 	tags_free(tags);
-}
-
-static void mpris_send_status()
-{
-	DBusMessageIter structure;
-	int state, shuffle, repeat_current, next, repeat;
-
-	switch (audio_get_state()) {
-		case STATE_PLAY:
-			state = 0;
-			break;
-		case STATE_PAUSE:
-			state = 1;
-			break;
-		case STATE_STOP:
-			state = 2;
-	}
-
-	shuffle = options_get_bool("Shuffle");
-	repeat  = options_get_bool("Repeat");
-	next	= options_get_bool("AutoNext");
-	repeat_current = !next && repeat;
-
-	/* I saw a nice usage of a C++ << operator for appending values to the message. */
-	dbus_message_iter_open_container(&args_out, DBUS_TYPE_STRUCT, 0, &structure);
-		dbus_message_iter_append_basic(&structure, DBUS_TYPE_INT32, &state);
-		dbus_message_iter_append_basic(&structure, DBUS_TYPE_INT32, &shuffle);
-		dbus_message_iter_append_basic(&structure, DBUS_TYPE_INT32, &repeat_current);
-		dbus_message_iter_append_basic(&structure, DBUS_TYPE_INT32, &repeat);
-	dbus_message_iter_close_container(&args_out, &structure);
-}
-
-/* TODO: stub */
-static void mpris_send_caps()
-{
-	int caps = 0
-	| CAN_HAS_TRACKLIST			/* Yes, MOC always has a playlist, be it an actual playlist or a directory. */
-	;
-
-	msg_add_int32(&caps);
 }
 
 /* Functions for sending signals. */
 
-static void mpris_tracklist_change_signal()
-{
-	msg = dbus_message_new_signal("/TrackList", MPRIS_IFACE, "TrackListChange");
-	dbus_message_iter_init_append(msg, &args_out);
-
-	mpris_send_tracklist_length();
-
-	dbus_connection_send(dbus_conn, msg, NULL);
-	dbus_connection_flush(dbus_conn);
-
-	dbus_message_unref(msg);
-}
+// static void mpris_tracklist_change_signal()
+// {
+// 	msg = dbus_message_new_signal(MPRIS_OBJECT, MPRIS_IFACE_TRACKLIST, "TrackListChange");
+// 	dbus_message_iter_init_append(msg, &args_out);
+//
+// 	mpris_send_tracklist_length();
+//
+// 	dbus_connection_send(dbus_conn, msg, NULL);
+// 	dbus_connection_flush(dbus_conn);
+//
+// 	dbus_message_unref(msg);
+// }
 
 static void mpris_track_change_signal()
 {
-	msg = dbus_message_new_signal("/Player", MPRIS_IFACE, "TrackChange");
-	dbus_message_iter_init_append(msg, &args_out);
+	DBusMessageIter array;
 
-	LOCK(curr_playing_mtx);
-	int curr = curr_playing;
-	UNLOCK(curr_playing_mtx);
-	mpris_send_metadata(curr);
+	debug("MPRIS Sending track change signal");
+	msg = dbus_message_new_signal(MPRIS_OBJECT, PROPERTIES_IFACE, "PropertiesChanged");
+	dbus_message_iter_init_append(msg, &args_out);
+	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_STRING, &MPRIS_IFACE_PLAYER);
+	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
+		msg_add_dict_metadata(&array);
+		msg_add_dict_playback_status(&array);
+	dbus_message_iter_close_container(&args_out, &array);
+	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "s", &array);
+	dbus_message_iter_close_container(&args_out, &array);
 
 	dbus_connection_send(dbus_conn, msg, NULL);
 	dbus_connection_flush(dbus_conn);
+	dbus_message_unref(msg);
+}
 
+static void mpris_seeked_signal()
+{
+	debug("MPRIS Sending position change signal");
+	msg = dbus_message_new_signal(MPRIS_OBJECT, PROPERTIES_IFACE, "Seeked");
+	dbus_message_iter_init_append(msg, &args_out);
+	dbus_int64_t val_x = audio_get_time() * 1000000;
+	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_INT64, &val_x);
+
+	dbus_connection_send(dbus_conn, msg, NULL);
+	dbus_connection_flush(dbus_conn);
 	dbus_message_unref(msg);
 }
 
 static void mpris_status_change_signal()
 {
-	msg = dbus_message_new_signal("/Player", MPRIS_IFACE, "StatusChange");
+	msg = dbus_message_new_signal(MPRIS_OBJECT, MPRIS_IFACE_PLAYER, "StatusChange");
 	dbus_message_iter_init_append(msg, &args_out);
 
-	mpris_send_status();
+// 	mpris_send_status();
 
 	dbus_connection_send(dbus_conn, msg, NULL);
 	dbus_connection_flush(dbus_conn);
@@ -269,110 +360,104 @@ static void mpris_status_change_signal()
 	dbus_message_unref(msg);
 }
 
-static void mpris_caps_change_signal()
-{
-	msg = dbus_message_new_signal("/Player", MPRIS_IFACE, "CapsChange");
-	dbus_message_iter_init_append(msg, &args_out);
-
-	mpris_send_caps();
-
-	dbus_connection_send(dbus_conn, msg, NULL);
-	dbus_connection_flush(dbus_conn);
-
-	dbus_message_unref(msg);
-}
+// static void mpris_caps_change_signal()
+// {
+// 	msg = dbus_message_new_signal(MPRIS_OBJECT, MPRIS_IFACE_PLAYER, "CapsChange");
+// 	dbus_message_iter_init_append(msg, &args_out);
+// 
+// 	mpris_send_caps();
+// 
+// 	dbus_connection_send(dbus_conn, msg, NULL);
+// 	dbus_connection_flush(dbus_conn);
+// 
+// 	dbus_message_unref(msg);
+// }
 
 /* Argument checking for incoming messages. */
 
 static int mpris_arg_bool()
 {
-	return dbus_message_iter_init(msg, &args_in) &&
-	       dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_BOOLEAN;
+	return dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_BOOLEAN;
 }
 
 static int mpris_arg_int32()
 {
-	return dbus_message_iter_init(msg, &args_in) &&
-	       dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_INT32;
+	return dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_INT32;
+}
+
+static int mpris_arg_int64()
+{
+	return dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_INT64;
 }
 
 /* Implementation of D-Bus methods (incomplete, see comments). */
 
 static void mpris_root_methods()
 {
-	if (dbus_message_is_method_call(msg, INTROSPECTION_IFACE, "Introspect")) {
-		msg_add_string(&root_introspection);
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Quit")) {
+	debug("MPRIS root method");
+	if (dbus_message_is_method_call(msg, MPRIS_IFACE_ROOT, "Quit")) {
 		server_quit = 1; /* TODO: Why care about using mutex? */
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Identity")) {
-		char *identity = xstrdup(PACKAGE_STRING);
-		msg_add_string(&identity);
-		free(identity);
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "MprisVersion")) {
-		short unsigned int version_major = 1, version_minor = 0;
-		msg_add_uint16(&version_major);
-		msg_add_uint16(&version_minor);
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_ROOT, "Raise")) {
+		/* We can't raise MOC, so we ignore it */
 	}
 }
 
-static void mpris_tracklist_methods()
-{
-	if (dbus_message_is_method_call(msg, INTROSPECTION_IFACE, "Introspect")) {
-		msg_add_string(&tracklist_introspection);
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "GetMetadata")) {
-		if (mpris_arg_int32()) {
-			int item;
-			dbus_message_iter_get_basic(&args_in, &item);
-			mpris_send_metadata(item);
-		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "GetCurrentTrack")) {
-		/* In curr_playing there's not a number we always want. */
-		LOCK(curr_playing_mtx);
-		int curr = curr_playing != -1 ? curr_playing : 0;
-		UNLOCK(curr_playing_mtx);
-		msg_add_int32(&curr);
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "GetLength")) {
-		mpris_send_tracklist_length();
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "AddTrack")) {
-		/*
-		 * Not implemented yet!
-		 * There are some issues to handle:
-		 * - every client can have its own playlist, which one to add a file to then?
-		 * - to add a file we seem to need to duplicate a few functions, such as
-		 *   add_file_plist(), play_from_url(), add_url_to_plist()
-		 *   from interface.c and code chunks processing the CMD_CLI_PLIST_ADD command
-		 *   in server.c
-		 */
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "DelTrack")) {
-		/* Not implemented yet for the same reason as for AddTrack. */
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "SetLoop")) {
-		if (mpris_arg_bool()) {
-			int loop_plist;
-			dbus_message_iter_get_basic(&args_in, &loop_plist);
-			options_set_int("Repeat", loop_plist);
-			/* We are asked to loop the playlist, so make it play more than one file. */
-			if (loop_plist) options_set_int("AutoNext", 1);
-			add_event_all(EV_OPTIONS, NULL);
-		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "SetRandom")) {
-		if (mpris_arg_bool()) {
-			int random;
-			dbus_message_iter_get_basic(&args_in, &random);
-			options_set_int("Shuffle", random);
-			add_event_all(EV_OPTIONS, NULL);
-		}
-	}
-}
+// static void mpris_tracklist_methods()
+// {
+// 	debug("MPRIS tracklist method");
+// 	if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "GetMetadata")) {
+// 		if (mpris_arg_int32()) {
+// 			int item;
+// 			dbus_message_iter_get_basic(&args_in, &item);
+// // 			mpris_send_metadata(item);
+// 		}
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "GetCurrentTrack")) {
+// 		/* In curr_playing there's not a number we always want. */
+// 		LOCK(curr_playing_mtx);
+// 		int curr = curr_playing != -1 ? curr_playing : 0;
+// 		UNLOCK(curr_playing_mtx);
+// 		msg_add_int32(&curr);
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "GetLength")) {
+// 		mpris_send_tracklist_length();
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "AddTrack")) {
+// 		/*
+// 		 * Not implemented yet!
+// 		 * There are some issues to handle:
+// 		 * - every client can have its own playlist, which one to add a file to then?
+// 		 * - to add a file we seem to need to duplicate a few functions, such as
+// 		 *   add_file_plist(), play_from_url(), add_url_to_plist()
+// 		 *   from ifaceace.c and code chunks processing the CMD_CLI_PLIST_ADD command
+// 		 *   in server.c
+// 		 */
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "DelTrack")) {
+// 		/* Not implemented yet for the same reason as for AddTrack. */
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "SetLoop")) {
+// 		if (mpris_arg_bool()) {
+// 			int loop_plist;
+// 			dbus_message_iter_get_basic(&args_in, &loop_plist);
+// 			options_set_int("Repeat", loop_plist);
+// 			/* We are asked to loop the playlist, so make it play more than one file. */
+// 			if (loop_plist) options_set_int("AutoNext", 1);
+// 			add_event_all(EV_OPTIONS, NULL);
+// 		}
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "SetRandom")) {
+// 		if (mpris_arg_bool()) {
+// 			int random;
+// 			dbus_message_iter_get_basic(&args_in, &random);
+// 			options_set_int("Shuffle", random);
+// 			add_event_all(EV_OPTIONS, NULL);
+// 		}
+// 	}
+// }
 
 static void mpris_player_methods()
 {
-	if (dbus_message_is_method_call(msg, INTROSPECTION_IFACE, "Introspect")) {
-		msg_add_string(&player_introspection);
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Next")) {
+	debug("MPRIS player method");
+	if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Next")) {
 		audio_next();
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Prev")) {
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Previous")) {
 		audio_prev();
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Pause")) {
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "PlayPause")) {
 		switch (audio_get_state()) {
 			case STATE_PAUSE:
 				audio_unpause();
@@ -380,70 +465,177 @@ static void mpris_player_methods()
 			case STATE_PLAY:
 				audio_pause();
 		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Stop")) {
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Pause")) {
+		audio_pause();
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Stop")) {
 		audio_stop();
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Play")) {
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Play")) {
+		if (audio_get_state() == STATE_PAUSE)
+			audio_unpause();
 		/* TODO: This does not make MOC play a song if it hasn't played one yet! */
-		char *file;
-		switch (audio_get_state()) {
-			case STATE_PAUSE:
-				audio_unpause();
-				break;
-			case STATE_PLAY:
-				LOCK(plist_mtx);
-				LOCK(curr_playing_mtx);
-				if (curr_plist != NULL && curr_playing != -1) {
-					file = plist_get_file (curr_plist, curr_playing);
-					UNLOCK(plist_mtx);
-					UNLOCK(curr_playing_mtx);
-					audio_play(file);
-					free(file);
-				} else {
-					UNLOCK(plist_mtx);
-					UNLOCK(curr_playing_mtx);
-				}
-				break;
-			case STATE_STOP:
-				audio_play("");
-		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "Repeat")) {
-		if (mpris_arg_bool()) {
-			int repeat_current;
-			dbus_message_iter_get_basic(&args_in, &repeat_current);
-			options_set_int("Repeat", repeat_current);
-			options_set_int("AutoNext", !repeat_current);
-			add_event_all(EV_OPTIONS, NULL);
-		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "GetStatus")) {
-		mpris_send_status();
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "GetMetadata")) {
-		LOCK(curr_playing_mtx);
-		int curr = curr_playing;
-		UNLOCK(curr_playing_mtx);
-		mpris_send_metadata(curr);
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "GetCaps")) {
-		mpris_send_caps();
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "VolumeSet")) {
-		if (mpris_arg_int32()) {
-			int volume;
-			dbus_message_iter_get_basic(&args_in, &volume);
-			/* TODO: Check the parameter first! */
-			audio_set_mixer(volume);
-		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "VolumeGet")) {
-		int volume = audio_get_mixer();
-		msg_add_int32(&volume);
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "PositionSet")) {
-		/* TODO: Should support milisecond precision too */
-		if (mpris_arg_int32()) {
-			int pos;
+// 		char *file;
+// 		switch (audio_get_state()) {
+// 			case STATE_PAUSE:
+// 				audio_unpause();
+// 				break;
+// 			case STATE_PLAY:
+// 				LOCK(plist_mtx);
+// 				LOCK(curr_playing_mtx);
+// 				if (curr_plist != NULL && curr_playing != -1) {
+// 					file = plist_get_file (curr_plist, curr_playing);
+// 					UNLOCK(plist_mtx);
+// 					UNLOCK(curr_playing_mtx);
+// 					audio_play(file);
+// 					free(file);
+// 				} else {
+// 					UNLOCK(plist_mtx);
+// 					UNLOCK(curr_playing_mtx);
+// 				}
+// 				break;
+// 			case STATE_STOP:
+// 				audio_play("");
+// 		}
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "SetPosition")) {
+		if (mpris_arg_int64()) {
+			dbus_int64_t pos;
+			dbus_message_iter_next(&args_in); // TODO: ignoring TrackId
 			dbus_message_iter_get_basic(&args_in, &pos);
-			/* TODO: Do we need to check the value for correctness? */
-			audio_jump_to(pos / 1000);
+			/* TODO: Per specification, should position beyond the end of the track should act as "next" */
+			if (pos > 0)
+				audio_jump_to(pos / 1000000);
 		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE, "PositionGet")) {
-		int pos = audio_get_time() * 1000;
-		msg_add_int32(&pos);
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Seek")) {
+		if (mpris_arg_int64()) {
+			dbus_int64_t pos;
+			dbus_message_iter_get_basic(&args_in, &pos);
+			/* TODO: Per specification, should position beyond the end of the track should act as "next" and negative beyond the start should seek to the beginning */
+			audio_seek(pos / 1000000);
+		}
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Repeat")) {
+// 		if (mpris_arg_bool()) {
+// 			int repeat_current;
+// 			dbus_message_iter_get_basic(&args_in, &repeat_current);
+// 			options_set_int("Repeat", repeat_current);
+// 			options_set_int("AutoNext", !repeat_current);
+// 			add_event_all(EV_OPTIONS, NULL);
+// 		}
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "VolumeSet")) {
+// 		if (mpris_arg_int32()) {
+// 			int volume;
+// 			dbus_message_iter_get_basic(&args_in, &volume);
+// 			/* TODO: Check the parameter first! */
+// 			audio_set_mixer(volume);
+// 		}
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "VolumeGet")) {
+// 		int volume = audio_get_mixer();
+// 		msg_add_int32(&volume);
+// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "PositionGet")) {
+// 		int pos = audio_get_time() * 1000000;
+// 		msg_add_int32(&pos);
+	}
+}
+
+static void mpris_properties() {
+	DBusMessage* msg_error;
+	DBusMessageIter array;
+
+	dbus_bool_t F = 0;
+	dbus_bool_t T = 1;
+	char* key;
+	char* val_s;
+	double val_d;
+	dbus_int64_t val_x;
+
+	dbus_bool_t shuffle;
+	bool repeat_current, next, repeat;
+	shuffle = options_get_bool("Shuffle");
+	repeat  = options_get_bool("Repeat");
+	next	= options_get_bool("AutoNext");
+	repeat_current = !next && repeat;
+
+	if (dbus_message_is_method_call(msg, PROPERTIES_IFACE, "GetAll")) {
+		char* str;
+		dbus_message_get_args(msg, &dbus_err, DBUS_TYPE_STRING, &str);
+		debug("MPRIS properties string arg: %s", str);
+
+		if (!strcmp(MPRIS_IFACE_ROOT, str)) {
+			dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
+
+			key = "Identity";
+			val_s = xstrdup(PACKAGE_STRING);
+			msg_add_dict_string(&array, &key, &val_s);
+			key = "CanQuit";
+			msg_add_dict_bool(&array, &key, &T);
+			key = "CanRaise";
+			msg_add_dict_bool(&array, &key, &F);
+			key = "HasTrackList";
+			msg_add_dict_bool(&array, &key, &F); // TODO: T
+			key = "SupportedUriSchemes";
+			val_s = "file"; // TODO: add other URI schemes
+			msg_add_dict_string_as_array(&array, &key, &val_s);
+			key = "SupportedMimeTypes";
+			val_s = "application/ogg"; // TODO: add other Mime types
+			msg_add_dict_string_as_array(&array, &key, &val_s);
+			key = "DesktopEntry";
+			val_s = "moc";
+			msg_add_dict_string(&array, &key, &val_s);
+
+			dbus_message_iter_close_container(&args_out, &array);
+		} else if (!strcmp(MPRIS_IFACE_PLAYER, str)) {
+			dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
+			key = "Rate";
+			val_d = 1;
+			msg_add_dict_double(&array, &key, &val_d);
+			key = "MinimumRate";
+			msg_add_dict_double(&array, &key, &val_d);
+			key = "MaximumRate";
+			msg_add_dict_double(&array, &key, &val_d);
+			key = "Volume";
+			val_d = audio_get_mixer() / 100.0;
+			msg_add_dict_double(&array, &key, &val_d);
+			key = "Position";
+			val_x = audio_get_time() * 1000000;
+			msg_add_dict_int64(&array, &key, &val_x);
+			key = "CanGoNext";
+			msg_add_dict_bool(&array, &key, &T);
+			key = "CanGoPrevious";
+			msg_add_dict_bool(&array, &key, &T);
+			key = "CanPlay";
+			msg_add_dict_bool(&array, &key, &T);
+			key = "CanPause";
+			msg_add_dict_bool(&array, &key, &T);
+			key = "CanSeek";
+			msg_add_dict_bool(&array, &key, &T);
+			key = "CanControl";
+			msg_add_dict_bool(&array, &key, &T);
+			key = "LoopStatus";
+			if (repeat_current)
+				val_s = "Track";
+			else if (repeat)
+				val_s = "Playlist";
+			else
+				val_s = "None";
+			msg_add_dict_string(&array, &key, &val_s);
+			key = "Shuffle";
+			msg_add_dict_bool(&array, &key, &shuffle);
+
+			msg_add_dict_playback_status(&array);
+			msg_add_dict_metadata(&array);
+
+			dbus_message_iter_close_container(&args_out, &array);
+// 		} else if (!strcmp(MPRIS_IFACE_TRACKLIST, str)) {
+		} else {
+			logit("MPRIS unknown interface: %s", str);
+			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_INTERFACE, "No such interface");
+			dbus_connection_send(dbus_conn, msg_error, NULL);
+			dbus_connection_flush(dbus_conn);
+		}
+	} else {
+			/* TODO: add Get and Set methods */
+			logit("MPRIS unknown method: %s", dbus_message_get_member(msg));
+			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_METHOD, "No such method");
+			dbus_connection_send(dbus_conn, msg_error, NULL);
+			dbus_connection_flush(dbus_conn);
 	}
 }
 
@@ -451,7 +643,8 @@ static void mpris_player_methods()
 void *mpris_thread(void *unused ATTR_UNUSED)
 {
 	DBusMessage *reply;
-	const char *path; /* The path an incoming message has been sent to. */
+// 	const char *path; /* The path an incoming message has been sent to. */
+	const char *iface;
 
 	/* If no D-Bus connection has been established we have nothing to do. */
 	if (dbus_conn == NULL) return NULL;
@@ -466,28 +659,35 @@ void *mpris_thread(void *unused ATTR_UNUSED)
 		}
 
 		/* Send signals if necessary. */
+		// TODO: More signals needed
 		LOCK(mpris_mutex);
-		if (mpris_tracklist_changed) {
-			mpris_tracklist_change_signal();
-			mpris_tracklist_changed = 0;
-		}
+// 		if (mpris_tracklist_changed) {
+// 			mpris_tracklist_change_signal();
+// 			mpris_tracklist_changed = 0;
+// 		}
 		if (mpris_track_changed) {
 			mpris_track_change_signal();
 			mpris_track_changed = 0;
 		}
-		if (mpris_caps_changed) {
-			mpris_caps_change_signal();
-			mpris_caps_changed = 0;
-		}
+// 		if (mpris_caps_changed) {
+// 			mpris_caps_change_signal();
+// 			mpris_caps_changed = 0;
+// 		}
 		if (mpris_status_changed) {
 			mpris_status_change_signal();
 			mpris_status_changed = 0;
+		}
+		if (mpris_seeked) {
+			mpris_seeked_signal();
+			mpris_seeked = 0;
 		}
 		UNLOCK(mpris_mutex);
 
 		/* Fetch an incoming message. */
 		msg = dbus_connection_pop_message(dbus_conn);
 		if (msg == NULL) continue;
+
+		dbus_message_iter_init(msg, &args_in);
 
 		/* Respond to all messages. They say in the specification some messages
 		 * are sometimes no-ops, so this is the place to start moving code. */
@@ -496,20 +696,30 @@ void *mpris_thread(void *unused ATTR_UNUSED)
 		dbus_message_iter_init_append(reply, &args_out);
 
 		/* Process the incoming message and prepare a response. */
-		if ((path = dbus_message_get_path(msg)) != NULL) {
-			logit("MPRIS msg path %s", path);
-			if (!strcmp("/", path))
+		if ((iface = dbus_message_get_interface(msg)) != NULL) {
+			if (!strcmp(MPRIS_IFACE_ROOT, iface))
 				mpris_root_methods();
-			else if (!strcmp("/Player", path))
+			else if (!strcmp(MPRIS_IFACE_PLAYER, iface))
 				mpris_player_methods();
-			else if (!strcmp("/TrackList", path))
-				mpris_tracklist_methods();
+// 			else if (!strcmp(MPRIS_IFACE_TRACKLIST, iface))
+// 				mpris_tracklist_methods();
+			else if (!strcmp(PROPERTIES_IFACE, iface))
+				mpris_properties();
+			else if (!strcmp(INTROSPECTION_IFACE, iface) && dbus_message_is_method_call(msg, INTROSPECTION_IFACE, "Introspect")) {
+				msg_add_string(&mpris_introspection); // TODO: check introspection data if it reflects what is really possible
+			}
+			else logit("MPRIS unknown interface");  // TODO: add Playlists and TrackList interfaces
 		}
 
 		/* Send the response and clean up. */
 		dbus_connection_send(dbus_conn, reply, NULL);
 		dbus_message_unref(msg);
 		dbus_connection_flush(dbus_conn);
+	}
+
+	if (dbus_error_is_set(&dbus_err)) {
+		logit("Error in D-Bus: %s", dbus_err.message);
+		dbus_error_free(&dbus_err);
 	}
 
 	logit("Stopping MPRIS thread due to a loss of communication with D-Bus.");
@@ -545,6 +755,13 @@ void mpris_caps_change()
 {
 	LOCK(mpris_mutex);
 	mpris_caps_changed = 1;
+	UNLOCK(mpris_mutex);
+}
+
+void mpris_position_change()
+{
+	LOCK(mpris_mutex);
+	mpris_seeked = 1;
 	UNLOCK(mpris_mutex);
 }
 

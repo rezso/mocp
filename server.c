@@ -527,10 +527,6 @@ static void on_song_change ()
 		return;
 	}
 
-#ifdef HAVE_MPRIS
-	mpris_track_change ();
-#endif
-
 	curr_tags = tags_cache_get_immediate (tags_cache, curr_file,
 	                                      TAGS_COMMENTS | TAGS_TIME);
 	arg_list = lists_strs_new (lists_strs_size (on_song_change));
@@ -592,6 +588,10 @@ static void on_song_change ()
 		}
 	}
 	tags_free (curr_tags);
+
+#ifdef HAVE_MPRIS
+	mpris_track_change ();
+#endif
 
 #ifndef NDEBUG
 	{
@@ -882,6 +882,9 @@ static int req_seek (struct client *cli)
 
 	logit ("Seeking %ds", sec);
 	audio_seek (sec);
+#ifdef HAVE_MPRIS
+	mpris_position_change();
+#endif
 
 	return 1;
 }
@@ -917,6 +920,9 @@ static int req_jump_to (struct client *cli)
 
 	logit ("Jumping to %ds", sec);
 	audio_jump_to (sec);
+#ifdef HAVE_MPRIS
+	mpris_position_change();
+#endif
 
 	return 1;
 }
@@ -1929,9 +1935,9 @@ void set_info_avg_bitrate (const int avg_bitrate)
 /* Notify the client about change of the player state. */
 void state_change ()
 {
-	#ifdef HAVE_MPRIS
+#ifdef HAVE_MPRIS
 	mpris_status_change ();
-	#endif
+#endif
 	add_event_all (EV_STATE, NULL);
 }
 
