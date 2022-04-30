@@ -625,7 +625,7 @@ static void mpris_properties() {
 			dbus_message_iter_close_container(&args_out, &array);
 // 		} else if (!strcmp(MPRIS_IFACE_TRACKLIST, str)) {
 		} else {
-			logit("MPRIS unknown interface: %s", str);
+			logit("MPRIS properties for unknown interface: %s", str);
 			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_INTERFACE, "No such interface");
 			dbus_connection_send(dbus_conn, msg_error, NULL);
 			dbus_connection_flush(dbus_conn);
@@ -708,7 +708,7 @@ void *mpris_thread(void *unused ATTR_UNUSED)
 			else if (!strcmp(INTROSPECTION_IFACE, iface) && dbus_message_is_method_call(msg, INTROSPECTION_IFACE, "Introspect")) {
 				msg_add_string(&mpris_introspection); // TODO: check introspection data if it reflects what is really possible
 			}
-			else logit("MPRIS unknown interface");  // TODO: add Playlists and TrackList interfaces
+			else logit("MPRIS unknown interface: %s", iface);  // TODO: add Playlists and TrackList interfaces
 		}
 
 		/* Send the response and clean up. */
