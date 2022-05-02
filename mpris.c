@@ -42,6 +42,16 @@ static DBusConnection *dbus_conn; /* Connection handle. */
 static DBusError dbus_err;        /* Error flag. */
 static DBusMessage *msg;          /* An incoming message. */
 static DBusMessageIter args_in, args_out;    /* Iterators for in- or outcoming messages' content. */
+static DBusMessage* msg_error;    /* Error message. */
+
+
+/* variables for storing data appended to messages */
+static dbus_bool_t F = 0;
+static dbus_bool_t T = 1;
+static char* val_s;
+static dbus_bool_t val_b;
+static double val_d;
+static dbus_int64_t val_x;
 
 /* Shared with audio.c */
 /* Track number in the current playlist.
@@ -249,14 +259,14 @@ static inline char* playback_status() {
 
 static void msg_add_playback_status(DBusMessageIter *array)
 {
-	char* val_s = playback_status();
+	val_s = playback_status();
 	msg_add_variant(array, DBUS_TYPE_STRING, &val_s);
 }
 
 static void msg_add_dict_playback_status(DBusMessageIter *array)
 {
 	char* key = "PlaybackStatus";
-	char* val_s = playback_status();
+	val_s = playback_status();
 	msg_add_dict_string(array, &key, &val_s);
 }
 
@@ -266,9 +276,6 @@ static void msg_add_metadata(DBusMessageIter *array) {
 	DBusMessageIter variant;
 
 	char* key;
-	char* val_s;
-	dbus_int64_t val_x;
-
 	char *file;
 	struct file_tags *tags;
 	int curr;
@@ -375,7 +382,7 @@ static void mpris_seeked_signal()
 	debug("MPRIS Sending position change signal");
 	msg = dbus_message_new_signal(MPRIS_OBJECT, PROPERTIES_IFACE, "Seeked");
 	dbus_message_iter_init_append(msg, &args_out);
-	dbus_int64_t val_x = audio_get_time() * 1000000;
+	val_x = audio_get_time() * 1000000;
 	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_INT64, &val_x);
 
 	dbus_connection_send(dbus_conn, msg, NULL);
@@ -571,170 +578,181 @@ static void mpris_player_methods()
 	}
 }
 
-static void mpris_properties() {
-	DBusMessage* msg_error;
+static void mpris_properties_getall_root() {
+	char* key;
 	DBusMessageIter array;
 
-	dbus_bool_t F = 0;
-	dbus_bool_t T = 1;
+	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
+
+	key = "Identity";
+	val_s = xstrdup(PACKAGE_STRING);
+	msg_add_dict_string(&array, &key, &val_s);
+	key = "CanQuit";
+	msg_add_dict_bool(&array, &key, &T);
+	key = "CanRaise";
+	msg_add_dict_bool(&array, &key, &F);
+	key = "HasTrackList";
+	msg_add_dict_bool(&array, &key, &F); // TODO: T
+	key = "SupportedUriSchemes";
+	val_s = "file"; // TODO: add other URI schemes
+	msg_add_dict_string_as_array(&array, &key, &val_s);
+	key = "SupportedMimeTypes";
+	val_s = "application/ogg"; // TODO: add other Mime types
+	msg_add_dict_string_as_array(&array, &key, &val_s);
+	key = "DesktopEntry";
+	val_s = "moc";
+	msg_add_dict_string(&array, &key, &val_s);
+
+	dbus_message_iter_close_container(&args_out, &array);
+}
+
+static void mpris_properties_get_root(char* key) {
+	if (!strcmp("Identity", key)) {
+		val_s = xstrdup(PACKAGE_STRING);
+		msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+	} else if (!strcmp("CanQuit", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+	} else if (!strcmp("CanRaise", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &F);
+	} else if (!strcmp("HasTrackList", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &F); // TODO: T
+	} else if (!strcmp("SupportedUriSchemes", key)) {
+		val_s = "file"; // TODO: add other URI schemes
+		msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+	} else if (!strcmp("SupportedMimeTypes", key)) {
+		val_s = "application/ogg"; // TODO: add other Mime types
+		msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+	} else if (!strcmp("DesktopEntry", key)) {
+		val_s = "moc";
+		msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+	} else {
+		logit("MPRIS Get unknown property: %s", key);
+		msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No such interface");
+		dbus_connection_send(dbus_conn, msg_error, NULL);
+		dbus_connection_flush(dbus_conn);
+	}
+}
+
+static void mpris_properties_getall_player() {
 	char* key;
-	char* val_s;
-	dbus_bool_t val_b;
-	double val_d;
-	dbus_int64_t val_x;
+	DBusMessageIter array;
 
+	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
+	key = "Rate";
+	val_d = 1;
+	msg_add_dict_double(&array, &key, &val_d);
+	key = "MinimumRate";
+	msg_add_dict_double(&array, &key, &val_d);
+	key = "MaximumRate";
+	msg_add_dict_double(&array, &key, &val_d);
+	key = "Volume";
+	val_d = audio_get_mixer() / 100.0;
+	msg_add_dict_double(&array, &key, &val_d);
+	key = "Position";
+	val_x = audio_get_time() * 1000000;
+	msg_add_dict_int64(&array, &key, &val_x);
+	key = "CanGoNext";
+	msg_add_dict_bool(&array, &key, &T);
+	key = "CanGoPrevious";
+	msg_add_dict_bool(&array, &key, &T);
+	key = "CanPlay";
+	msg_add_dict_bool(&array, &key, &T);
+	key = "CanPause";
+	msg_add_dict_bool(&array, &key, &T);
+	key = "CanSeek";
+	msg_add_dict_bool(&array, &key, &T);
+	key = "CanControl";
+	msg_add_dict_bool(&array, &key, &T);
+	key = "LoopStatus";
+	val_s = loop_status();
+	msg_add_dict_string(&array, &key, &val_s);
+	key = "Shuffle";
+	val_b = options_get_bool("Shuffle");
+	msg_add_dict_bool(&array, &key, &val_b);
+
+	msg_add_dict_playback_status(&array);
+	msg_add_dict_metadata(&array);
+
+	dbus_message_iter_close_container(&args_out, &array);
+}
+
+static void mpris_properties_get_player(char* key) {
+	if (!strcmp("Rate", key)) {
+		val_d = 1;
+		msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+	} else if (!strcmp("MinimumRate", key)) {
+		val_d = 1;
+		msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+	} else if (!strcmp("MaximumRate", key)) {
+		val_d = 1;
+		msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+	} else if (!strcmp("Volume", key)) {
+		val_d = audio_get_mixer() / 100.0;
+		msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+	} else if (!strcmp("Position", key)) {
+		val_x = audio_get_time() * 1000000;
+		msg_add_variant(&args_out, DBUS_TYPE_INT64, &val_d);
+	} else if (!strcmp("CanGoNext", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+	} else if (!strcmp("CanGoPrevious", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+	} else if (!strcmp("CanPlay", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+	} else if (!strcmp("CanPause", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+	} else if (!strcmp("CanSeek", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+	} else if (!strcmp("CanControl", key)) {
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+	} else if (!strcmp("LoopStatus", key)) {
+		val_s = loop_status();
+		msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+	} else if (!strcmp("Shuffle", key)) {
+		val_b = options_get_bool("Shuffle");
+		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &val_b);
+	} else if (!strcmp("PlaybackStatus", key)) {
+		msg_add_playback_status(&args_out);
+	} else if (!strcmp("Metadata", key)) {
+		msg_add_metadata(&args_out);
+	} else {
+		logit("MPRIS Get unknown property: %s", key);
+		msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No such interface");
+		dbus_connection_send(dbus_conn, msg_error, NULL);
+		dbus_connection_flush(dbus_conn);
+	}
+}
+
+static void mpris_properties() {
 	if (dbus_message_is_method_call(msg, PROPERTIES_IFACE, "GetAll")) {
-		char* str;
-		dbus_message_get_args(msg, &dbus_err, DBUS_TYPE_STRING, &str);
-		logit("MPRIS GetAll properties for interface: %s", str);
+		char* iface;
+		dbus_message_get_args(msg, &dbus_err, DBUS_TYPE_STRING, &iface);
+		logit("MPRIS GetAll properties for interface: %s", iface);
 
-		if (!strcmp(MPRIS_IFACE_ROOT, str)) {
-			dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
-
-			key = "Identity";
-			val_s = xstrdup(PACKAGE_STRING);
-			msg_add_dict_string(&array, &key, &val_s);
-			key = "CanQuit";
-			msg_add_dict_bool(&array, &key, &T);
-			key = "CanRaise";
-			msg_add_dict_bool(&array, &key, &F);
-			key = "HasTrackList";
-			msg_add_dict_bool(&array, &key, &F); // TODO: T
-			key = "SupportedUriSchemes";
-			val_s = "file"; // TODO: add other URI schemes
-			msg_add_dict_string_as_array(&array, &key, &val_s);
-			key = "SupportedMimeTypes";
-			val_s = "application/ogg"; // TODO: add other Mime types
-			msg_add_dict_string_as_array(&array, &key, &val_s);
-			key = "DesktopEntry";
-			val_s = "moc";
-			msg_add_dict_string(&array, &key, &val_s);
-
-			dbus_message_iter_close_container(&args_out, &array);
-		} else if (!strcmp(MPRIS_IFACE_PLAYER, str)) {
-			dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
-			key = "Rate";
-			val_d = 1;
-			msg_add_dict_double(&array, &key, &val_d);
-			key = "MinimumRate";
-			msg_add_dict_double(&array, &key, &val_d);
-			key = "MaximumRate";
-			msg_add_dict_double(&array, &key, &val_d);
-			key = "Volume";
-			val_d = audio_get_mixer() / 100.0;
-			msg_add_dict_double(&array, &key, &val_d);
-			key = "Position";
-			val_x = audio_get_time() * 1000000;
-			msg_add_dict_int64(&array, &key, &val_x);
-			key = "CanGoNext";
-			msg_add_dict_bool(&array, &key, &T);
-			key = "CanGoPrevious";
-			msg_add_dict_bool(&array, &key, &T);
-			key = "CanPlay";
-			msg_add_dict_bool(&array, &key, &T);
-			key = "CanPause";
-			msg_add_dict_bool(&array, &key, &T);
-			key = "CanSeek";
-			msg_add_dict_bool(&array, &key, &T);
-			key = "CanControl";
-			msg_add_dict_bool(&array, &key, &T);
-			key = "LoopStatus";
-			val_s = loop_status();
-			msg_add_dict_string(&array, &key, &val_s);
-			key = "Shuffle";
-			val_b = options_get_bool("Shuffle");
-			msg_add_dict_bool(&array, &key, &val_b);
-
-// 			msg_add_dict_playback_status(&array);
-// 			msg_add_dict_metadata(&array);
-
-			dbus_message_iter_close_container(&args_out, &array);
+		if (!strcmp(MPRIS_IFACE_ROOT, iface)) {
+			mpris_properties_getall_root();
+		} else if (!strcmp(MPRIS_IFACE_PLAYER, iface)) {
+			mpris_properties_getall_player();
 // 		} else if (!strcmp(MPRIS_IFACE_TRACKLIST, str)) {
 		} else {
-			logit("MPRIS GetAll properties for unknown interface: %s", str);
+			logit("MPRIS GetAll properties for unknown interface: %s", iface);
 			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_INTERFACE, "No such interface");
 			dbus_connection_send(dbus_conn, msg_error, NULL);
 			dbus_connection_flush(dbus_conn);
 		}
 	} else if (dbus_message_is_method_call(msg, PROPERTIES_IFACE, "Get")) {
-		char* str;
+		char* iface;
 		char* key;
 
-		dbus_message_get_args(msg, &dbus_err, DBUS_TYPE_STRING, &str, DBUS_TYPE_STRING, &key);
+		dbus_message_get_args(msg, &dbus_err, DBUS_TYPE_STRING, &iface, DBUS_TYPE_STRING, &key);
 		logit("MPRIS Get property: %s", key);
 
-		if (!strcmp(MPRIS_IFACE_ROOT, str)) {
-			if (!strcmp("Identity", key)) {
-				val_s = xstrdup(PACKAGE_STRING);
-				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
-			} else if (!strcmp("CanQuit", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
-			} else if (!strcmp("CanRaise", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &F);
-			} else if (!strcmp("HasTrackList", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &F); // TODO: T
-			} else if (!strcmp("SupportedUriSchemes", key)) {
-				val_s = "file"; // TODO: add other URI schemes
-				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
-			} else if (!strcmp("SupportedMimeTypes", key)) {
-				val_s = "application/ogg"; // TODO: add other Mime types
-				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
-			} else if (!strcmp("DesktopEntry", key)) {
-				val_s = "moc";
-				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
-			} else {
-				logit("MPRIS Get unknown property: %s", key);
-				msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No such interface");
-				dbus_connection_send(dbus_conn, msg_error, NULL);
-				dbus_connection_flush(dbus_conn);
-			}
-		} else if (!strcmp(MPRIS_IFACE_PLAYER, str)) {
-			if (!strcmp("Rate", key)) {
-				val_d = 1;
-				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
-			} else if (!strcmp("MinimumRate", key)) {
-				val_d = 1;
-				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
-			} else if (!strcmp("MaximumRate", key)) {
-				val_d = 1;
-				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
-			} else if (!strcmp("Volume", key)) {
-				val_d = audio_get_mixer() / 100.0;
-				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
-			} else if (!strcmp("Position", key)) {
-				val_x = audio_get_time() * 1000000;
-				msg_add_variant(&args_out, DBUS_TYPE_INT64, &val_d);
-			} else if (!strcmp("CanGoNext", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
-			} else if (!strcmp("CanGoPrevious", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
-			} else if (!strcmp("CanPlay", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
-			} else if (!strcmp("CanPause", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
-			} else if (!strcmp("CanSeek", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
-			} else if (!strcmp("CanControl", key)) {
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
-			} else if (!strcmp("LoopStatus", key)) {
-				val_s = loop_status();
-				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
-			} else if (!strcmp("Shuffle", key)) {
-				val_b = options_get_bool("Shuffle");
-				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &val_b);
-			} else if (!strcmp("PlaybackStatus", key)) {
-				msg_add_playback_status(&args_out);
-			} else if (!strcmp("Metadata", key)) {
-				msg_add_metadata(&args_out);
-			} else {
-				logit("MPRIS Get unknown property: %s", key);
-				msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No such interface");
-				dbus_connection_send(dbus_conn, msg_error, NULL);
-				dbus_connection_flush(dbus_conn);
-			}
+		if (!strcmp(MPRIS_IFACE_ROOT, iface)) {
+			mpris_properties_get_root(key);
+		} else if (!strcmp(MPRIS_IFACE_PLAYER, iface)) {
+			mpris_properties_get_player(key);
 // 		} else if (!strcmp(MPRIS_IFACE_TRACKLIST, str)) {
 		} else {
-			logit("MPRIS Get properties for unknown interface: %s", str);
+			logit("MPRIS Get properties for unknown interface: %s", iface);
 			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_INTERFACE, "No such interface");
 			dbus_connection_send(dbus_conn, msg_error, NULL);
 			dbus_connection_flush(dbus_conn);
