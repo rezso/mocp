@@ -1948,6 +1948,9 @@ void ctime_change ()
 
 void tags_change ()
 {
+#ifdef HAVE_MPRIS
+	mpris_track_change();
+#endif
 	add_event_all (EV_TAGS, NULL);
 }
 

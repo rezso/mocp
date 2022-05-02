@@ -657,10 +657,14 @@ static void mpris_properties_set_player(char* key, char type, void* value) {
 				logit("MPRIS Can't set unknown LoopStatus: %s", str);
 				goto err;
 			}
+			add_event_all(EV_OPTIONS, NULL);
+			mpris_status_changed = 1;
 		}
 	} else if (!strcmp("Shuffle", key)) {
 		if (type != DBUS_TYPE_BOOLEAN) goto err;
 		options_set_bool("Shuffle", *(dbus_bool_t*)value);
+		add_event_all(EV_OPTIONS, NULL);
+		mpris_status_changed = 1;
 	} else if (!strcmp("Volume", key)) {
 		if (type != DBUS_TYPE_DOUBLE) goto err;
 		double vol = *(double*)value;
