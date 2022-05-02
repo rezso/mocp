@@ -150,56 +150,13 @@ static void msg_add_variant(DBusMessageIter *array, char type, void *value)
 	dbus_message_iter_close_container(array, &variant);
 }
 
-// TODO: merge all msg_add_dict_* functions like above
-static void msg_add_dict_string(DBusMessageIter *array, char **key, char **value)
+static void msg_add_dict(DBusMessageIter *array, char type, char **key, void *value)
 {
 	DBusMessageIter dict;
-	DBusMessageIter variant;
 
 	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
 		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
-		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "s", &variant);
-			dbus_message_iter_append_basic(&variant, DBUS_TYPE_STRING, value);
-		dbus_message_iter_close_container(&dict, &variant);
-	dbus_message_iter_close_container(array, &dict);
-}
-
-static void msg_add_dict_bool(DBusMessageIter *array, char **key, dbus_bool_t *value)
-{
-	DBusMessageIter dict;
-	DBusMessageIter variant;
-
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
-		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
-		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "b", &variant);
-			dbus_message_iter_append_basic(&variant, DBUS_TYPE_BOOLEAN, value);
-		dbus_message_iter_close_container(&dict, &variant);
-	dbus_message_iter_close_container(array, &dict);
-}
-
-static void msg_add_dict_double(DBusMessageIter *array, char **key, double *value)
-{
-	DBusMessageIter dict;
-	DBusMessageIter variant;
-
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
-		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
-		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "d", &variant);
-			dbus_message_iter_append_basic(&variant, DBUS_TYPE_DOUBLE, value);
-		dbus_message_iter_close_container(&dict, &variant);
-	dbus_message_iter_close_container(array, &dict);
-}
-
-static void msg_add_dict_int64(DBusMessageIter *array, char **key, dbus_int64_t *value)
-{
-	DBusMessageIter dict;
-	DBusMessageIter variant;
-
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
-		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
-		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "x", &variant);
-			dbus_message_iter_append_basic(&variant, DBUS_TYPE_INT64, value);
-		dbus_message_iter_close_container(&dict, &variant);
+		msg_add_variant(&dict, type, value);
 	dbus_message_iter_close_container(array, &dict);
 }
 
@@ -215,19 +172,6 @@ static void msg_add_dict_string_as_array(DBusMessageIter *array, char **key, cha
 			dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "s", &array_str);
 				dbus_message_iter_append_basic(&array_str, DBUS_TYPE_STRING, value);
 			dbus_message_iter_close_container(&variant, &array_str);
-		dbus_message_iter_close_container(&dict, &variant);
-	dbus_message_iter_close_container(array, &dict);
-}
-
-static void msg_add_dict_obj(DBusMessageIter *array, char **key, char **value)
-{
-	DBusMessageIter dict;
-	DBusMessageIter variant;
-
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
-		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, key);
-		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "o", &variant);
-			dbus_message_iter_append_basic(&variant, DBUS_TYPE_OBJECT_PATH, value);
 		dbus_message_iter_close_container(&dict, &variant);
 	dbus_message_iter_close_container(array, &dict);
 }
@@ -257,7 +201,7 @@ static inline char* playback_status() {
 	}
 }
 
-static void msg_add_playback_status(DBusMessageIter *array)
+static void msg_add_variant_playback_status(DBusMessageIter *array)
 {
 	val_s = playback_status();
 	msg_add_variant(array, DBUS_TYPE_STRING, &val_s);
@@ -267,7 +211,7 @@ static void msg_add_dict_playback_status(DBusMessageIter *array)
 {
 	char* key = "PlaybackStatus";
 	val_s = playback_status();
-	msg_add_dict_string(array, &key, &val_s);
+	msg_add_dict(array, DBUS_TYPE_STRING, &key, &val_s);
 }
 
 /* TODO: If tags are missing, at least a title made from file name should be returned! */
@@ -306,16 +250,16 @@ static void msg_add_variant_metadata(DBusMessageIter *array) {
 		dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "{sv}", &array_meta);
 			key = "mpris:trackid";
 			val_s = "moc/track/xxxx"; // TODO: not unique, not very conformant with specs
-			msg_add_dict_string(&array_meta, &key, &val_s); // TODO: type o?
+			msg_add_dict(&array_meta, DBUS_TYPE_STRING, &key, &val_s); // TODO: type o?
 			key = "mpris:length";
 			val_x = tags->time * 1000000;
-			msg_add_dict_int64(&array_meta, &key, &val_x);
+			msg_add_dict(&array_meta, DBUS_TYPE_INT64, &key, &val_x);
 			key = "xesam:title";
 			if (tags->title)
 				val_s = tags->title;
 			else
 				val_s = "[unknown title]";
-			msg_add_dict_string(&array_meta, &key, &val_s);
+			msg_add_dict(&array_meta, DBUS_TYPE_STRING, &key, &val_s);
 			key = "xesam:artist";
 			if (tags->artist)
 				val_s = tags->artist;
@@ -327,7 +271,7 @@ static void msg_add_variant_metadata(DBusMessageIter *array) {
 				val_s = tags->album;
 			else
 				val_s = "[unknown album]";
-			msg_add_dict_string(&array_meta, &key, &val_s);
+			msg_add_dict(&array_meta, DBUS_TYPE_STRING, &key, &val_s);
 
 		dbus_message_iter_close_container(&variant, &array_meta);
 	dbus_message_iter_close_container(array, &variant);
@@ -591,13 +535,13 @@ static void mpris_properties_getall_root() {
 
 	key = "Identity";
 	val_s = xstrdup(PACKAGE_STRING);
-	msg_add_dict_string(&array, &key, &val_s);
+	msg_add_dict(&array, DBUS_TYPE_STRING, &key, &val_s);
 	key = "CanQuit";
-	msg_add_dict_bool(&array, &key, &T);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
 	key = "CanRaise";
-	msg_add_dict_bool(&array, &key, &F);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &F);
 	key = "HasTrackList";
-	msg_add_dict_bool(&array, &key, &F); // TODO: T
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &F); // TODO: T
 	key = "SupportedUriSchemes";
 	val_s = "file"; // TODO: add other URI schemes
 	msg_add_dict_string_as_array(&array, &key, &val_s);
@@ -606,7 +550,7 @@ static void mpris_properties_getall_root() {
 	msg_add_dict_string_as_array(&array, &key, &val_s);
 	key = "DesktopEntry";
 	val_s = "moc";
-	msg_add_dict_string(&array, &key, &val_s);
+	msg_add_dict(&array, DBUS_TYPE_STRING, &key, &val_s);
 
 	dbus_message_iter_close_container(&args_out, &array);
 }
@@ -645,35 +589,35 @@ static void mpris_properties_getall_player() {
 	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
 	key = "Rate";
 	val_d = 1;
-	msg_add_dict_double(&array, &key, &val_d);
+	msg_add_dict(&array, DBUS_TYPE_DOUBLE, &key, &val_s);
 	key = "MinimumRate";
-	msg_add_dict_double(&array, &key, &val_d);
+	msg_add_dict(&array, DBUS_TYPE_DOUBLE, &key, &val_s);
 	key = "MaximumRate";
-	msg_add_dict_double(&array, &key, &val_d);
+	msg_add_dict(&array, DBUS_TYPE_DOUBLE, &key, &val_s);
 	key = "Volume";
 	val_d = audio_get_mixer() / 100.0;
-	msg_add_dict_double(&array, &key, &val_d);
+	msg_add_dict(&array, DBUS_TYPE_DOUBLE, &key, &val_s);
 	key = "Position";
 	val_x = audio_get_time() * 1000000;
-	msg_add_dict_int64(&array, &key, &val_x);
+	msg_add_dict(&array, DBUS_TYPE_INT64, &key, &val_s);
 	key = "CanGoNext";
-	msg_add_dict_bool(&array, &key, &T);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
 	key = "CanGoPrevious";
-	msg_add_dict_bool(&array, &key, &T);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
 	key = "CanPlay";
-	msg_add_dict_bool(&array, &key, &T);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
 	key = "CanPause";
-	msg_add_dict_bool(&array, &key, &T);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
 	key = "CanSeek";
-	msg_add_dict_bool(&array, &key, &T);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
 	key = "CanControl";
-	msg_add_dict_bool(&array, &key, &T);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
 	key = "LoopStatus";
 	val_s = loop_status();
-	msg_add_dict_string(&array, &key, &val_s);
+	msg_add_dict(&array, DBUS_TYPE_STRING, &key, &val_s);
 	key = "Shuffle";
 	val_b = options_get_bool("Shuffle");
-	msg_add_dict_bool(&array, &key, &val_b);
+	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &val_b);
 
 	msg_add_dict_playback_status(&array);
 	msg_add_dict_metadata(&array);
@@ -716,7 +660,7 @@ static void mpris_properties_get_player(char* key) {
 		val_b = options_get_bool("Shuffle");
 		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &val_b);
 	} else if (!strcmp("PlaybackStatus", key)) {
-		msg_add_playback_status(&args_out);
+		msg_add_variant_playback_status(&args_out);
 	} else if (!strcmp("Metadata", key)) {
 		msg_add_variant_metadata(&args_out);
 	} else {
