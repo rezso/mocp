@@ -478,14 +478,14 @@ static void mpris_player_methods()
 			dbus_message_iter_get_basic(&args_in, &pos);
 			/* TODO: Per specification, should position beyond the end of the track should act as "next" */
 			if (pos > 0)
-				audio_jump_to(pos / 1000000);
+				audio_jump_to(pos / 1000000.0);
 		}
 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Seek")) {
 		if (mpris_arg_int64()) {
 			dbus_int64_t pos;
 			dbus_message_iter_get_basic(&args_in, &pos);
 			/* TODO: Per specification, should position beyond the end of the track should act as "next" and negative beyond the start should seek to the beginning */
-			audio_seek(pos / 1000000);
+			audio_seek(pos / 1000000.0);
 		}
 	}
 }
