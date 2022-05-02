@@ -70,8 +70,7 @@ extern struct tags_cache *tags_cache;
 /* Flags to be changed by the server + their mutex. */
 static bool mpris_track_changed = 0;
 static bool mpris_status_changed = 0;
-static bool mpris_caps_changed = 0;
-static bool mpris_tracklist_changed = 0;
+// static bool mpris_tracklist_changed = 0;
 static bool mpris_seeked = 0;
 pthread_mutex_t mpris_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -86,7 +85,8 @@ static const char* PROPERTIES_IFACE =		"org.freedesktop.DBus.Properties";
 
 /* Connection to D-Bus happens here. If it fails, for any reason, we just move
  * on as the MPRIS/D-Bus feature is not crucial for the server.
- * Later, it could be possible to rerun the initialization and the thread
+ *
+ * TODO: it could be possible to rerun the initialization and the thread
  * on-demand or automatically after a period of time. */
 void mpris_init()
 {
@@ -310,6 +310,7 @@ static void msg_add_dict_metadata(DBusMessageIter *array)
 static void mpris_track_change_signal()
 {
 	DBusMessageIter array;
+	char* key;
 
 	debug("MPRIS Sending track change signal");
 	msg = dbus_message_new_signal(MPRIS_OBJECT, PROPERTIES_IFACE, "PropertiesChanged");
@@ -318,6 +319,12 @@ static void mpris_track_change_signal()
 	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
 		msg_add_dict_metadata(&array);
 		msg_add_dict_playback_status(&array);
+		key = "LoopStatus";
+		val_s = loop_status();
+		msg_add_dict(&array, DBUS_TYPE_STRING, &key, &val_s);
+		key = "Shuffle";
+		val_b = options_get_bool("Shuffle");
+		msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &val_b);
 	dbus_message_iter_close_container(&args_out, &array);
 	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "s", &array);
 	dbus_message_iter_close_container(&args_out, &array);
@@ -342,29 +349,28 @@ static void mpris_seeked_signal()
 
 static void mpris_status_change_signal()
 {
-	msg = dbus_message_new_signal(MPRIS_OBJECT, MPRIS_IFACE_PLAYER, "StatusChange");
-	dbus_message_iter_init_append(msg, &args_out);
+	DBusMessageIter array;
+	char* key;
 
-// 	mpris_send_status();
+	logit("MPRIS Sending status change signal");
+	msg = dbus_message_new_signal(MPRIS_OBJECT, PROPERTIES_IFACE, "PropertiesChanged");
+	dbus_message_iter_init_append(msg, &args_out);
+	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_STRING, &MPRIS_IFACE_PLAYER);
+	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
+		key = "LoopStatus";
+		val_s = loop_status();
+		msg_add_dict(&array, DBUS_TYPE_STRING, &key, &val_s);
+		key = "Shuffle";
+		val_b = options_get_bool("Shuffle");
+		msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &val_b);
+	dbus_message_iter_close_container(&args_out, &array);
+	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "s", &array);
+	dbus_message_iter_close_container(&args_out, &array);
 
 	dbus_connection_send(dbus_conn, msg, NULL);
 	dbus_connection_flush(dbus_conn);
-
 	dbus_message_unref(msg);
 }
-
-// static void mpris_caps_change_signal()
-// {
-// 	msg = dbus_message_new_signal(MPRIS_OBJECT, MPRIS_IFACE_PLAYER, "CapsChange");
-// 	dbus_message_iter_init_append(msg, &args_out);
-// 
-// 	mpris_send_caps();
-// 
-// 	dbus_connection_send(dbus_conn, msg, NULL);
-// 	dbus_connection_flush(dbus_conn);
-// 
-// 	dbus_message_unref(msg);
-// }
 
 /* Argument checking for incoming messages. */
 
@@ -779,7 +785,7 @@ void *mpris_thread(void *unused ATTR_UNUSED)
 		}
 
 		/* Send signals if necessary. */
-		// TODO: More signals needed
+		// TODO: Probably more signals needed
 		LOCK(mpris_mutex);
 // 		if (mpris_tracklist_changed) {
 // 			mpris_tracklist_change_signal();
@@ -789,10 +795,6 @@ void *mpris_thread(void *unused ATTR_UNUSED)
 			mpris_track_change_signal();
 			mpris_track_changed = 0;
 		}
-// 		if (mpris_caps_changed) {
-// 			mpris_caps_change_signal();
-// 			mpris_caps_changed = 0;
-// 		}
 		if (mpris_status_changed) {
 			mpris_status_change_signal();
 			mpris_status_changed = 0;
@@ -848,13 +850,12 @@ void *mpris_thread(void *unused ATTR_UNUSED)
 
 /* Hooks in the core/server. */
 
-/* Not used yet. */
-void mpris_tracklist_change()
-{
-	LOCK(mpris_mutex);
-	mpris_tracklist_changed = 1;
-	UNLOCK(mpris_mutex);
-}
+// void mpris_tracklist_change()
+// {
+// 	LOCK(mpris_mutex);
+// 	mpris_tracklist_changed = 1;
+// 	UNLOCK(mpris_mutex);
+// }
 
 void mpris_track_change()
 {
@@ -867,14 +868,6 @@ void mpris_status_change()
 {
 	LOCK(mpris_mutex);
 	mpris_status_changed = 1;
-	UNLOCK(mpris_mutex);
-}
-
-/* Not used yet. */
-void mpris_caps_change()
-{
-	LOCK(mpris_mutex);
-	mpris_caps_changed = 1;
 	UNLOCK(mpris_mutex);
 }
 
