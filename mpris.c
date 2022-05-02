@@ -642,24 +642,23 @@ static void mpris_properties_set_player(char* key, char type, void* value) {
 			goto err;
 		}
 	} else if (!strcmp("LoopStatus", key)) {
-		if (type == 's') {
-			char* str = *(char**)value;
-			if (!strcmp(str, "None")) {
-				options_set_bool("Repeat", 0);
-				options_set_bool("AutoNext", 1);
-			} else if (!strcmp(str, "Track")) {
-				options_set_bool("Repeat", 1);
-				options_set_bool("AutoNext", 0);
-			} else if (!strcmp(str, "Playlist")) {
-				options_set_bool("Repeat", 1);
-				options_set_bool("AutoNext", 1);
-			} else {
-				logit("MPRIS Can't set unknown LoopStatus: %s", str);
-				goto err;
-			}
-			add_event_all(EV_OPTIONS, NULL);
-			mpris_status_changed = 1;
+		if (type != DBUS_TYPE_STRING) goto err;
+		char* str = *(char**)value;
+		if (!strcmp(str, "None")) {
+			options_set_bool("Repeat", 0);
+			options_set_bool("AutoNext", 1);
+		} else if (!strcmp(str, "Track")) {
+			options_set_bool("Repeat", 1);
+			options_set_bool("AutoNext", 0);
+		} else if (!strcmp(str, "Playlist")) {
+			options_set_bool("Repeat", 1);
+			options_set_bool("AutoNext", 1);
+		} else {
+			logit("MPRIS Can't set unknown LoopStatus: %s", str);
+			goto err;
 		}
+		add_event_all(EV_OPTIONS, NULL);
+		mpris_status_changed = 1;
 	} else if (!strcmp("Shuffle", key)) {
 		if (type != DBUS_TYPE_BOOLEAN) goto err;
 		options_set_bool("Shuffle", *(dbus_bool_t*)value);
@@ -773,7 +772,6 @@ static void mpris_properties() {
 void *mpris_thread(void *unused ATTR_UNUSED)
 {
 	DBusMessage *reply;
-// 	const char *path; /* The path an incoming message has been sent to. */
 	const char *iface;
 
 	/* If no D-Bus connection has been established we have nothing to do. */
