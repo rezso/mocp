@@ -465,29 +465,6 @@ static void mpris_player_methods()
 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Play")) {
 		if (audio_get_state() == STATE_PAUSE)
 			audio_unpause();
-		/* TODO: This does not make MOC play a song if it hasn't played one yet! */
-// 		char *file;
-// 		switch (audio_get_state()) {
-// 			case STATE_PAUSE:
-// 				audio_unpause();
-// 				break;
-// 			case STATE_PLAY:
-// 				LOCK(plist_mtx);
-// 				LOCK(curr_playing_mtx);
-// 				if (curr_plist != NULL && curr_playing != -1) {
-// 					file = plist_get_file (curr_plist, curr_playing);
-// 					UNLOCK(plist_mtx);
-// 					UNLOCK(curr_playing_mtx);
-// 					audio_play(file);
-// 					free(file);
-// 				} else {
-// 					UNLOCK(plist_mtx);
-// 					UNLOCK(curr_playing_mtx);
-// 				}
-// 				break;
-// 			case STATE_STOP:
-// 				audio_play("");
-// 		}
 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "SetPosition")) {
 		if (mpris_arg_int64()) {
 			dbus_int64_t pos;
@@ -504,27 +481,6 @@ static void mpris_player_methods()
 			/* TODO: Per specification, should position beyond the end of the track should act as "next" and negative beyond the start should seek to the beginning */
 			audio_seek(pos / 1000000);
 		}
-// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Repeat")) {
-// 		if (mpris_arg_bool()) {
-// 			int repeat_current;
-// 			dbus_message_iter_get_basic(&args_in, &repeat_current);
-// 			options_set_int("Repeat", repeat_current);
-// 			options_set_int("AutoNext", !repeat_current);
-// 			add_event_all(EV_OPTIONS, NULL);
-// 		}
-// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "VolumeSet")) {
-// 		if (mpris_arg_int32()) {
-// 			int volume;
-// 			dbus_message_iter_get_basic(&args_in, &volume);
-// 			/* TODO: Check the parameter first! */
-// 			audio_set_mixer(volume);
-// 		}
-// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "VolumeGet")) {
-// 		int volume = audio_get_mixer();
-// 		msg_add_int32(&volume);
-// 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "PositionGet")) {
-// 		int pos = audio_get_time() * 1000000;
-// 		msg_add_int32(&pos);
 	}
 }
 
@@ -672,6 +628,49 @@ static void mpris_properties_get_player(char* key) {
 	}
 }
 
+static void mpris_properties_set_player(char* key, char type, void* value) {
+	if (!strcmp("Rate", key)) {
+		if (type != DBUS_TYPE_DOUBLE) goto err;
+		if (*(double*)value != 1) {
+			logit("MPRIS Can't set rate to a value different than 1");
+			goto err;
+		}
+	} else if (!strcmp("LoopStatus", key)) {
+		if (type == 's') {
+			char* str = *(char**)value;
+			if (!strcmp(str, "None")) {
+				options_set_bool("Repeat", 0);
+				options_set_bool("AutoNext", 1);
+			} else if (!strcmp(str, "Track")) {
+				options_set_bool("Repeat", 1);
+				options_set_bool("AutoNext", 0);
+			} else if (!strcmp(str, "Playlist")) {
+				options_set_bool("Repeat", 1);
+				options_set_bool("AutoNext", 1);
+			} else {
+				logit("MPRIS Can't set unknown LoopStatus: %s", str);
+				goto err;
+			}
+		}
+	} else if (!strcmp("Shuffle", key)) {
+		if (type != DBUS_TYPE_BOOLEAN) goto err;
+		options_set_bool("Shuffle", *(dbus_bool_t*)value);
+	} else if (!strcmp("Volume", key)) {
+		if (type != DBUS_TYPE_DOUBLE) goto err;
+		double vol = *(double*)value;
+		vol = CLAMP(0, vol, 1);
+		audio_set_mixer(vol * 100);
+	}
+
+	if (0) {
+			err:
+				logit("MPRIS Set property: incorrect arguments");
+				msg_error = dbus_message_new_error(msg, DBUS_ERROR_INVALID_ARGS, "Invalid arguments for Set method");
+				dbus_connection_send(dbus_conn, msg_error, NULL);
+				dbus_connection_flush(dbus_conn);
+	}
+}
+
 static void mpris_properties() {
 	if (dbus_message_is_method_call(msg, PROPERTIES_IFACE, "GetAll")) {
 		char* iface;
@@ -707,8 +706,52 @@ static void mpris_properties() {
 			dbus_connection_send(dbus_conn, msg_error, NULL);
 			dbus_connection_flush(dbus_conn);
 		}
+	} else if (dbus_message_is_method_call(msg, PROPERTIES_IFACE, "Set")) {
+		char* iface;
+		char* key;
+		char type;
+		DBusBasicValue value;
+
+		DBusMessageIter args;
+		DBusMessageIter variant;
+
+		dbus_message_iter_init(msg, &args);
+		if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_STRING) goto err;
+		dbus_message_iter_get_basic(&args, &iface);
+		if (!dbus_message_iter_next(&args)) goto err;
+		if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_STRING) goto err;
+		dbus_message_iter_get_basic(&args, &key);
+		if (!dbus_message_iter_next(&args)) goto err;
+		if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_VARIANT) goto err;
+		dbus_message_iter_recurse(&args, &variant);
+		type = dbus_message_iter_get_arg_type(&variant);
+		dbus_message_iter_get_basic(&variant, &value);
+
+		logit("MPRIS Set property: %s, value of type: %c", key, type);
+
+		if (!strcmp(MPRIS_IFACE_ROOT, iface)) {
+			logit("MPRIS No properties to set on %s", iface);
+			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No property to set");
+			dbus_connection_send(dbus_conn, msg_error, NULL);
+			dbus_connection_flush(dbus_conn);
+		} else if (!strcmp(MPRIS_IFACE_PLAYER, iface)) {
+			mpris_properties_set_player(key, type, &value);
+// 		} else if (!strcmp(MPRIS_IFACE_TRACKLIST, iface)) {
+		} else {
+			logit("MPRIS Set property for unknown interface: %s", iface);
+			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_INTERFACE, "No such interface");
+			dbus_connection_send(dbus_conn, msg_error, NULL);
+			dbus_connection_flush(dbus_conn);
+		}
+
+		if (0) {
+			err:
+				logit("MPRIS Set property: incorrect arguments");
+				msg_error = dbus_message_new_error(msg, DBUS_ERROR_INVALID_ARGS, "Invalid arguments for Set method");
+				dbus_connection_send(dbus_conn, msg_error, NULL);
+				dbus_connection_flush(dbus_conn);
+		}
 	} else {
-			/* TODO: add Set methods */
 			logit("MPRIS unknown method: %s", dbus_message_get_member(msg));
 			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_METHOD, "No such method");
 			dbus_connection_send(dbus_conn, msg_error, NULL);
