@@ -640,7 +640,7 @@ static void mpris_properties_get_player(char* key) {
 		msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
 	} else if (!strcmp("Position", key)) {
 		val_x = audio_get_time() * 1000000;
-		msg_add_variant(&args_out, DBUS_TYPE_INT64, &val_d);
+		msg_add_variant(&args_out, DBUS_TYPE_INT64, &val_x);
 	} else if (!strcmp("CanGoNext", key)) {
 		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
 	} else if (!strcmp("CanGoPrevious", key)) {
