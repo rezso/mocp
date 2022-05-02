@@ -388,15 +388,15 @@ static void mpris_status_change_signal()
 
 /* Argument checking for incoming messages. */
 
-static int mpris_arg_bool()
-{
-	return dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_BOOLEAN;
-}
+// static int mpris_arg_bool()
+// {
+// 	return dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_BOOLEAN;
+// }
 
-static int mpris_arg_int32()
-{
-	return dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_INT32;
-}
+// static int mpris_arg_int32()
+// {
+// 	return dbus_message_iter_get_arg_type(&args_in) == DBUS_TYPE_INT32;
+// }
 
 static int mpris_arg_int64()
 {
@@ -439,7 +439,7 @@ static void mpris_root_methods()
 // 		 * - every client can have its own playlist, which one to add a file to then?
 // 		 * - to add a file we seem to need to duplicate a few functions, such as
 // 		 *   add_file_plist(), play_from_url(), add_url_to_plist()
-// 		 *   from ifaceace.c and code chunks processing the CMD_CLI_PLIST_ADD command
+// 		 *   from interface.c and code chunks processing the CMD_CLI_PLIST_ADD command
 // 		 *   in server.c
 // 		 */
 // 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_TRACKLIST, "DelTrack")) {
