@@ -130,6 +130,17 @@ static void msg_add_string(char **value)
 // 	dbus_message_iter_append_basic(&args_out, DBUS_TYPE_UINT16, value);
 // }
 
+static void msg_add_variant(DBusMessageIter *array, char type, void *value)
+{
+	DBusMessageIter variant;
+	char type_as_string[2] = {type, 0};
+
+	dbus_message_iter_open_container(array, DBUS_TYPE_VARIANT, type_as_string, &variant);
+			dbus_message_iter_append_basic(&variant, type, value);
+	dbus_message_iter_close_container(array, &variant);
+}
+
+// TODO: merge all msg_add_dict_* functions like above
 static void msg_add_dict_string(DBusMessageIter *array, char **key, char **value)
 {
 	DBusMessageIter dict;
@@ -211,30 +222,47 @@ static void msg_add_dict_obj(DBusMessageIter *array, char **key, char **value)
 	dbus_message_iter_close_container(array, &dict);
 }
 
-static void msg_add_dict_playback_status(DBusMessageIter *array)
-{
-	char* key;
-	char* val_s;
+static inline char* loop_status() {
+	bool repeat_current, next, repeat;
+	repeat = options_get_bool("Repeat");
+	next = options_get_bool("AutoNext");
+	repeat_current = !next && repeat;
+	if (repeat_current)
+		return "Track";
+	else if (repeat)
+		return "Playlist";
+	else
+		return "None";
+}
 
-	key = "PlaybackStatus";
+static inline char* playback_status() {
 	switch (audio_get_state()) {
 		case STATE_PLAY:
-			val_s = "Playing";
-			break;
+			return "Playing";
 		case STATE_PAUSE:
-			val_s = "Paused";
-			break;
+			return "Paused";
 		case STATE_STOP:
-			val_s = "Stopped";
+		default:
+			return "Stopped";
 	}
+}
+
+static void msg_add_playback_status(DBusMessageIter *array)
+{
+	char* val_s = playback_status();
+	msg_add_variant(array, DBUS_TYPE_STRING, &val_s);
+}
+
+static void msg_add_dict_playback_status(DBusMessageIter *array)
+{
+	char* key = "PlaybackStatus";
+	char* val_s = playback_status();
 	msg_add_dict_string(array, &key, &val_s);
 }
 
 /* TODO: If tags are missing, at least a title made from file name should be returned! */
-static void msg_add_dict_metadata(DBusMessageIter *array)
-{
+static void msg_add_metadata(DBusMessageIter *array) {
 	DBusMessageIter array_meta;
-	DBusMessageIter dict;
 	DBusMessageIter variant;
 
 	char* key;
@@ -261,42 +289,50 @@ static void msg_add_dict_metadata(DBusMessageIter *array)
 		tags = tags_cache_get_immediate(tags_cache, file, TAGS_COMMENTS | TAGS_TIME);
 	}
 
-	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
-		key = "Metadata";
-		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, &key);
-		dbus_message_iter_open_container(&dict, DBUS_TYPE_VARIANT, "a{sv}", &variant);
-			dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "{sv}", &array_meta);
-				key = "mpris:trackid";
-				val_s = "moc/track/xxxx"; // TODO: not unique, not very conformant with specs
-				msg_add_dict_string(&array_meta, &key, &val_s); // type o?
-				key = "mpris:length";
-				val_x = tags->time * 1000000;
-				msg_add_dict_int64(&array_meta, &key, &val_x);
-				key = "xesam:title";
-				if (tags->title)
-					val_s = tags->title;
-				else
-					val_s = "[unknown title]";
-				msg_add_dict_string(&array_meta, &key, &val_s);
-				key = "xesam:artist";
-				if (tags->artist)
-					val_s = tags->artist;
-				else
-					val_s = "[unknown artist]";
-				msg_add_dict_string_as_array(&array_meta, &key, &val_s);
-				key = "xesam:album";
-				if (tags->album)
-					val_s = tags->album;
-				else
-					val_s = "[unknown album]";
-				msg_add_dict_string(&array_meta, &key, &val_s);
+	dbus_message_iter_open_container(array, DBUS_TYPE_VARIANT, "a{sv}", &variant);
+		dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "{sv}", &array_meta);
+			key = "mpris:trackid";
+			val_s = "moc/track/xxxx"; // TODO: not unique, not very conformant with specs
+			msg_add_dict_string(&array_meta, &key, &val_s); // type o?
+			key = "mpris:length";
+			val_x = tags->time * 1000000;
+			msg_add_dict_int64(&array_meta, &key, &val_x);
+			key = "xesam:title";
+			if (tags->title)
+				val_s = tags->title;
+			else
+				val_s = "[unknown title]";
+			msg_add_dict_string(&array_meta, &key, &val_s);
+			key = "xesam:artist";
+			if (tags->artist)
+				val_s = tags->artist;
+			else
+				val_s = "[unknown artist]";
+			msg_add_dict_string_as_array(&array_meta, &key, &val_s);
+			key = "xesam:album";
+			if (tags->album)
+				val_s = tags->album;
+			else
+				val_s = "[unknown album]";
+			msg_add_dict_string(&array_meta, &key, &val_s);
 
-			dbus_message_iter_close_container(&variant, &array_meta);
-		dbus_message_iter_close_container(&dict, &variant);
-	dbus_message_iter_close_container(array, &dict);
+		dbus_message_iter_close_container(&variant, &array_meta);
+	dbus_message_iter_close_container(array, &variant);
 
 	free(file);
 	tags_free(tags);
+}
+
+static void msg_add_dict_metadata(DBusMessageIter *array)
+{
+	DBusMessageIter dict;
+	char* key;
+
+	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
+		key = "Metadata";
+		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, &key);
+		msg_add_metadata(&dict);
+	dbus_message_iter_close_container(array, &dict);
 }
 
 /* Functions for sending signals. */
@@ -543,20 +579,14 @@ static void mpris_properties() {
 	dbus_bool_t T = 1;
 	char* key;
 	char* val_s;
+	dbus_bool_t val_b;
 	double val_d;
 	dbus_int64_t val_x;
-
-	dbus_bool_t shuffle;
-	bool repeat_current, next, repeat;
-	shuffle = options_get_bool("Shuffle");
-	repeat  = options_get_bool("Repeat");
-	next	= options_get_bool("AutoNext");
-	repeat_current = !next && repeat;
 
 	if (dbus_message_is_method_call(msg, PROPERTIES_IFACE, "GetAll")) {
 		char* str;
 		dbus_message_get_args(msg, &dbus_err, DBUS_TYPE_STRING, &str);
-		debug("MPRIS properties string arg: %s", str);
+		logit("MPRIS GetAll properties for interface: %s", str);
 
 		if (!strcmp(MPRIS_IFACE_ROOT, str)) {
 			dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
@@ -609,29 +639,108 @@ static void mpris_properties() {
 			key = "CanControl";
 			msg_add_dict_bool(&array, &key, &T);
 			key = "LoopStatus";
-			if (repeat_current)
-				val_s = "Track";
-			else if (repeat)
-				val_s = "Playlist";
-			else
-				val_s = "None";
+			val_s = loop_status();
 			msg_add_dict_string(&array, &key, &val_s);
 			key = "Shuffle";
-			msg_add_dict_bool(&array, &key, &shuffle);
+			val_b = options_get_bool("Shuffle");
+			msg_add_dict_bool(&array, &key, &val_b);
 
-			msg_add_dict_playback_status(&array);
-			msg_add_dict_metadata(&array);
+// 			msg_add_dict_playback_status(&array);
+// 			msg_add_dict_metadata(&array);
 
 			dbus_message_iter_close_container(&args_out, &array);
 // 		} else if (!strcmp(MPRIS_IFACE_TRACKLIST, str)) {
 		} else {
-			logit("MPRIS properties for unknown interface: %s", str);
+			logit("MPRIS GetAll properties for unknown interface: %s", str);
+			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_INTERFACE, "No such interface");
+			dbus_connection_send(dbus_conn, msg_error, NULL);
+			dbus_connection_flush(dbus_conn);
+		}
+	} else if (dbus_message_is_method_call(msg, PROPERTIES_IFACE, "Get")) {
+		char* str;
+		char* key;
+
+		dbus_message_get_args(msg, &dbus_err, DBUS_TYPE_STRING, &str, DBUS_TYPE_STRING, &key);
+		logit("MPRIS Get property: %s", key);
+
+		if (!strcmp(MPRIS_IFACE_ROOT, str)) {
+			if (!strcmp("Identity", key)) {
+				val_s = xstrdup(PACKAGE_STRING);
+				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+			} else if (!strcmp("CanQuit", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+			} else if (!strcmp("CanRaise", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &F);
+			} else if (!strcmp("HasTrackList", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &F); // TODO: T
+			} else if (!strcmp("SupportedUriSchemes", key)) {
+				val_s = "file"; // TODO: add other URI schemes
+				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+			} else if (!strcmp("SupportedMimeTypes", key)) {
+				val_s = "application/ogg"; // TODO: add other Mime types
+				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+			} else if (!strcmp("DesktopEntry", key)) {
+				val_s = "moc";
+				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+			} else {
+				logit("MPRIS Get unknown property: %s", key);
+				msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No such interface");
+				dbus_connection_send(dbus_conn, msg_error, NULL);
+				dbus_connection_flush(dbus_conn);
+			}
+		} else if (!strcmp(MPRIS_IFACE_PLAYER, str)) {
+			if (!strcmp("Rate", key)) {
+				val_d = 1;
+				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+			} else if (!strcmp("MinimumRate", key)) {
+				val_d = 1;
+				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+			} else if (!strcmp("MaximumRate", key)) {
+				val_d = 1;
+				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+			} else if (!strcmp("Volume", key)) {
+				val_d = audio_get_mixer() / 100.0;
+				msg_add_variant(&args_out, DBUS_TYPE_DOUBLE, &val_d);
+			} else if (!strcmp("Position", key)) {
+				val_x = audio_get_time() * 1000000;
+				msg_add_variant(&args_out, DBUS_TYPE_INT64, &val_d);
+			} else if (!strcmp("CanGoNext", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+			} else if (!strcmp("CanGoPrevious", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+			} else if (!strcmp("CanPlay", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+			} else if (!strcmp("CanPause", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+			} else if (!strcmp("CanSeek", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+			} else if (!strcmp("CanControl", key)) {
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
+			} else if (!strcmp("LoopStatus", key)) {
+				val_s = loop_status();
+				msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
+			} else if (!strcmp("Shuffle", key)) {
+				val_b = options_get_bool("Shuffle");
+				msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &val_b);
+			} else if (!strcmp("PlaybackStatus", key)) {
+				msg_add_playback_status(&args_out);
+			} else if (!strcmp("Metadata", key)) {
+				msg_add_metadata(&args_out);
+			} else {
+				logit("MPRIS Get unknown property: %s", key);
+				msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No such interface");
+				dbus_connection_send(dbus_conn, msg_error, NULL);
+				dbus_connection_flush(dbus_conn);
+			}
+// 		} else if (!strcmp(MPRIS_IFACE_TRACKLIST, str)) {
+		} else {
+			logit("MPRIS Get properties for unknown interface: %s", str);
 			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_INTERFACE, "No such interface");
 			dbus_connection_send(dbus_conn, msg_error, NULL);
 			dbus_connection_flush(dbus_conn);
 		}
 	} else {
-			/* TODO: add Get and Set methods */
+			/* TODO: add Set methods */
 			logit("MPRIS unknown method: %s", dbus_message_get_member(msg));
 			msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_METHOD, "No such method");
 			dbus_connection_send(dbus_conn, msg_error, NULL);
