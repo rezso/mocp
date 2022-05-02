@@ -272,6 +272,7 @@ static void msg_add_variant_metadata(DBusMessageIter *array) {
 			else
 				val_s = "[unknown album]";
 			msg_add_dict(&array_meta, DBUS_TYPE_STRING, &key, &val_s);
+			// TODO: Return mpris:artUrl if cover.jpg is present 
 
 		dbus_message_iter_close_container(&variant, &array_meta);
 	dbus_message_iter_close_container(array, &variant);
@@ -534,7 +535,7 @@ static void mpris_properties_getall_root() {
 	dbus_message_iter_open_container(&args_out, DBUS_TYPE_ARRAY, "{sv}", &array);
 
 	key = "Identity";
-	val_s = xstrdup(PACKAGE_STRING);
+	val_s = xstrdup(PACKAGE_NAME);
 	msg_add_dict(&array, DBUS_TYPE_STRING, &key, &val_s);
 	key = "CanQuit";
 	msg_add_dict(&array, DBUS_TYPE_BOOLEAN, &key, &T);
@@ -557,7 +558,7 @@ static void mpris_properties_getall_root() {
 
 static void mpris_properties_get_root(char* key) {
 	if (!strcmp("Identity", key)) {
-		val_s = xstrdup(PACKAGE_STRING);
+		val_s = xstrdup(PACKAGE_NAME);
 		msg_add_variant(&args_out, DBUS_TYPE_STRING, &val_s);
 	} else if (!strcmp("CanQuit", key)) {
 		msg_add_variant(&args_out, DBUS_TYPE_BOOLEAN, &T);
