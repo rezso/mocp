@@ -22,6 +22,7 @@
 # include "config.h"
 #endif
 
+#include <libgen.h>
 #include <string.h>
 #include <dbus/dbus.h>
 
@@ -223,6 +224,7 @@ static void msg_add_variant_metadata(DBusMessageIter *array) {
 	char *file;
 	struct file_tags *tags;
 	int curr;
+	char cover_uri[PATH_MAX+7];
 
 	LOCK(curr_playing_mtx);
 	curr = curr_playing;
@@ -244,6 +246,13 @@ static void msg_add_variant_metadata(DBusMessageIter *array) {
 		tags = tags_new();
 	} else {
 		tags = tags_cache_get_immediate(tags_cache, file, TAGS_COMMENTS | TAGS_TIME);
+// 		logit("MPRIS file: %s", file);
+		char* dir = dirname(file);
+		char cover[PATH_MAX];
+		int rc = snprintf(cover, sizeof(cover), "%s/cover.jpg", dir);
+		if (rc < ssizeof(cover) && file_exists(cover)) {
+			snprintf(cover_uri, sizeof(cover_uri), "file://%s", cover);
+		} else cover_uri[0] = 0;
 	}
 
 	dbus_message_iter_open_container(array, DBUS_TYPE_VARIANT, "a{sv}", &variant);
@@ -272,7 +281,12 @@ static void msg_add_variant_metadata(DBusMessageIter *array) {
 			else
 				val_s = "[unknown album]";
 			msg_add_dict(&array_meta, DBUS_TYPE_STRING, &key, &val_s);
-			// TODO: Return mpris:artUrl if cover.jpg is present 
+			if (cover_uri[0]) {
+// 				logit("MPRIS url: %s", cover_uri);
+				key = "mpris:artUrl";
+				val_s = cover_uri;
+				msg_add_dict(&array_meta, DBUS_TYPE_STRING, &key, &val_s);
+			}
 
 		dbus_message_iter_close_container(&variant, &array_meta);
 	dbus_message_iter_close_container(array, &variant);
