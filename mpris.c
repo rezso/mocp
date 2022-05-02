@@ -271,7 +271,7 @@ static void msg_add_dict_playback_status(DBusMessageIter *array)
 }
 
 /* TODO: If tags are missing, at least a title made from file name should be returned! */
-static void msg_add_metadata(DBusMessageIter *array) {
+static void msg_add_variant_metadata(DBusMessageIter *array) {
 	DBusMessageIter array_meta;
 	DBusMessageIter variant;
 
@@ -283,7 +283,13 @@ static void msg_add_metadata(DBusMessageIter *array) {
 	LOCK(curr_playing_mtx);
 	curr = curr_playing;
 	UNLOCK(curr_playing_mtx);
-	if (curr < 0) return;
+	if (curr < 0) {
+		dbus_message_iter_open_container(array, DBUS_TYPE_VARIANT, "a{sv}", &variant);
+			dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "{sv}", &array_meta);
+			dbus_message_iter_close_container(&variant, &array_meta);
+		dbus_message_iter_close_container(array, &variant);
+		return;
+	}
 
 	LOCK(plist_mtx);
 	file = plist_get_file(curr_plist, curr);
@@ -300,7 +306,7 @@ static void msg_add_metadata(DBusMessageIter *array) {
 		dbus_message_iter_open_container(&variant, DBUS_TYPE_ARRAY, "{sv}", &array_meta);
 			key = "mpris:trackid";
 			val_s = "moc/track/xxxx"; // TODO: not unique, not very conformant with specs
-			msg_add_dict_string(&array_meta, &key, &val_s); // type o?
+			msg_add_dict_string(&array_meta, &key, &val_s); // TODO: type o?
 			key = "mpris:length";
 			val_x = tags->time * 1000000;
 			msg_add_dict_int64(&array_meta, &key, &val_x);
@@ -333,12 +339,11 @@ static void msg_add_metadata(DBusMessageIter *array) {
 static void msg_add_dict_metadata(DBusMessageIter *array)
 {
 	DBusMessageIter dict;
-	char* key;
+	char* key = "Metadata";
 
 	dbus_message_iter_open_container(array, DBUS_TYPE_DICT_ENTRY, NULL, &dict);
-		key = "Metadata";
 		dbus_message_iter_append_basic(&dict, DBUS_TYPE_STRING, &key);
-		msg_add_metadata(&dict);
+		msg_add_variant_metadata(&dict);
 	dbus_message_iter_close_container(array, &dict);
 }
 
@@ -713,7 +718,7 @@ static void mpris_properties_get_player(char* key) {
 	} else if (!strcmp("PlaybackStatus", key)) {
 		msg_add_playback_status(&args_out);
 	} else if (!strcmp("Metadata", key)) {
-		msg_add_metadata(&args_out);
+		msg_add_variant_metadata(&args_out);
 	} else {
 		logit("MPRIS Get unknown property: %s", key);
 		msg_error = dbus_message_new_error(msg, DBUS_ERROR_UNKNOWN_PROPERTY, "No such interface");
