@@ -52,6 +52,7 @@
 #include "themes.h"
 #include "softmixer.h"
 #include "utf8.h"
+#include "ratings.h"
 
 #define INTERFACE_LOG	"mocp_client_log"
 #define PLAYLIST_FILE	"playlist.m3u"
@@ -581,6 +582,8 @@ static int get_tags_setting ()
 
 	if (options_get_bool("ReadTags"))
 		needed_tags |= TAGS_COMMENTS;
+	if (options_get_bool("RatingShow"))
+		needed_tags |= TAGS_RATING;
 	if (!strcasecmp(options_get_symb("ShowTime"), "yes"))
 		needed_tags |= TAGS_TIME;
 
@@ -629,17 +632,16 @@ static void interface_message (const char *format, ...)
 
 /* Update tags (and titles) for the given item on the playlist with new tags. */
 static void update_item_tags (struct plist *plist, const int num,
-		const struct file_tags *tags)
+		struct file_tags *tags)
 {
 	struct file_tags *old_tags = plist_get_tags (plist, num);
 
-	plist_set_tags (plist, num, tags);
-
-	/* Get the time from the old tags if it's not present in the new tags.
+	/* Get the tags from the old tags if it's not present in the new tags.
 	 * FIXME: There is risk, that the file was modified and the time
 	 * from the old tags is not valid. */
-	if (!(tags->filled & TAGS_TIME) && old_tags && old_tags->time != -1)
-		plist_set_item_time (plist, num, old_tags->time);
+	if (old_tags) tags_update (tags, old_tags, 1);
+
+	plist_set_tags (plist, num, tags);
 
 	if (plist->items[num].title_tags) {
 		free (plist->items[num].title_tags);
@@ -890,6 +892,9 @@ static void event_plist_add (const struct plist_item *item)
 		if (options_get_bool("ReadTags")
 				&& (!item->tags || !item->tags->title))
 			needed_tags |= TAGS_COMMENTS;
+		if (options_get_bool("RatingShow")
+				&& (!item->tags || !(item->tags->filled & TAGS_RATING)))
+			needed_tags |= TAGS_RATING;
 		if (!strcasecmp(options_get_symb("ShowTime"), "yes")
 				&& (!item->tags || item->tags->time == -1))
 			needed_tags |= TAGS_TIME;
@@ -1374,8 +1379,6 @@ static void enter_first_dir ();
 /* Switch between the directory view and the playlist. */
 static void toggle_menu ()
 {
-	int num;
-
 	if (iface_in_plist_menu()) {
 		if (!cwd[0])
 			/* we were at the playlist from the startup */
@@ -1383,7 +1386,7 @@ static void toggle_menu ()
 		else
 			iface_switch_to_dir ();
 	}
-	else if ((num = plist_count(playlist)))
+	else if ((plist_count(playlist)))
 		iface_switch_to_plist ();
 	else
 		error ("The playlist is empty.");
@@ -1838,9 +1841,8 @@ static void add_dir_plist ()
 	}
 
 	if (!strcmp(file, "..")) {
-		error ("Can't add '..'.");
 		free (file);
-		return;
+		file = xstrdup(cwd);
 	}
 
 	iface_set_status ("Reading directories...");
@@ -2084,6 +2086,23 @@ static void reread_dir ()
 {
 	while (go_to_dir (NULL, 1)==0)
 		go_dir_up();
+}
+
+static void set_rating (int r)
+{
+	assert (r >= 0 && r <= 5);
+
+	if (!options_get_bool("RatingShow")) return;
+
+	if (iface_curritem_get_type () != F_SOUND) return;
+	char *file = iface_get_curr_file ();
+	if (!file) return;
+
+	send_int_to_srv (CMD_SET_RATING);
+	send_str_to_srv (file);
+	send_int_to_srv (r);
+
+	free (file);
 }
 
 /* Clear the playlist on user request. */
@@ -2394,13 +2413,14 @@ static void entry_key_search (const struct iface_key *k)
 static void save_playlist (const char *file, const int save_serial)
 {
 	iface_set_status ("Saving the playlist...");
-	fill_tags (playlist, TAGS_COMMENTS | TAGS_TIME, 0);
-	if (!user_wants_interrupt()) {
-		if (plist_save (playlist, file, save_serial))
-			interface_message ("Playlist saved");
+	if (options_get_bool ("SavePlaylistTags")) {
+		fill_tags (playlist, TAGS_COMMENTS | TAGS_TIME, 0);
+		if (user_wants_interrupt())
+			iface_set_status ("Reading tags aborted");
 	}
-	else
-		iface_set_status ("Aborted");
+
+	if (plist_save (playlist, file, save_serial, (options_get_bool ("SavePlaylistTags") && !user_wants_interrupt())))
+		interface_message ("Playlist saved");
 	iface_set_status ("");
 }
 
@@ -2835,8 +2855,8 @@ static void make_theme_menu ()
 
 		error ("No themes found.");
 	}
-
-	iface_update_theme_selection (get_current_theme ());
+	else
+		iface_update_theme_selection (get_current_theme ());
 	iface_refresh ();
 }
 
@@ -2996,14 +3016,14 @@ static char *custom_cmd_substitute (const char *arg)
 		case 'n':
 			file = iface_get_curr_file ();
 			tags = get_tags (file);
-			result = (char *) xmalloc (sizeof (char) * 10);
-			snprintf (result, 10, "%d", tags->track);
+			result = (char *) xmalloc (sizeof (char) * 16);
+			snprintf (result, 16, "%d", tags->track);
 			break;
 		case 'm':
 			file = iface_get_curr_file ();
 			tags = get_tags (file);
-			result = (char *) xmalloc (sizeof (char) * 10);
-			snprintf (result, 10, "%d", tags->time);
+			result = (char *) xmalloc (sizeof (char) * 16);
+			snprintf (result, 16, "%d", tags->time);
 			break;
 		case 'f':
 			result = iface_get_curr_file ();
@@ -3028,14 +3048,14 @@ static char *custom_cmd_substitute (const char *arg)
 			break;
 		case 'N':
 			if (curr_file.tags && curr_file.tags->track != -1) {
-				result = (char *) xmalloc (sizeof (char) * 10);
-				snprintf (result, 10, "%d", curr_file.tags->track);
+				result = (char *) xmalloc (sizeof (char) * 16);
+				snprintf (result, 16, "%d", curr_file.tags->track);
 			}
 			break;
 		case 'M':
 			if (curr_file.tags && curr_file.tags->time != -1) {
-				result = (char *) xmalloc (sizeof (char) * 10);
-				snprintf (result, 10, "%d", curr_file.tags->time);
+				result = (char *) xmalloc (sizeof (char) * 16);
+				snprintf (result, 16, "%d", curr_file.tags->time);
 			}
 			break;
 		case 'F':
@@ -3051,14 +3071,14 @@ static char *custom_cmd_substitute (const char *arg)
 			break;
 		case 'S':
 			if (curr_file.file && curr_file.block_file) {
-				result = (char *) xmalloc (sizeof (char) * 10);
-				snprintf (result, 10, "%d", curr_file.block_start);
+				result = (char *) xmalloc (sizeof (char) * 16);
+				snprintf (result, 16, "%d", curr_file.block_start);
 			}
 			break;
 		case 'E':
 			if (curr_file.file && curr_file.block_file) {
-				result = (char *) xmalloc (sizeof (char) * 10);
-				snprintf (result, 10, "%d", curr_file.block_end);
+				result = (char *) xmalloc (sizeof (char) * 16);
+				snprintf (result, 16, "%d", curr_file.block_end);
 			}
 			break;
 		default:
@@ -3399,6 +3419,24 @@ static void menu_key (const struct iface_key *k)
 				break;
 			case KEY_CMD_VOLUME_100:
 				set_mixer (100);
+				break;
+			case KEY_CMD_RATE_0:
+				set_rating (0);
+				break;
+			case KEY_CMD_RATE_1:
+				set_rating (1);
+				break;
+			case KEY_CMD_RATE_2:
+				set_rating (2);
+				break;
+			case KEY_CMD_RATE_3:
+				set_rating (3);
+				break;
+			case KEY_CMD_RATE_4:
+				set_rating (4);
+				break;
+			case KEY_CMD_RATE_5:
+				set_rating (5);
 				break;
 			case KEY_CMD_MARK_START:
 				file_info_block_mark (&curr_file.block_start);
@@ -3857,13 +3895,9 @@ static void add_recursively (struct plist *plist, lists_t_strs *args)
 
 		arg = lists_strs_at (args, ix);
 
-		if (!is_url (arg) && arg[0] != '/') {
-			if (arg[0] == '/')
-				strcpy (path, "/");
-			else {
-				strncpy (path, cwd, sizeof (path));
-				path[sizeof (path) - 1] = 0;
-			}
+		if (arg[0] != '/' && !is_url (arg)) {
+			strncpy (path, cwd, sizeof (path));
+			path[sizeof (path) - 1] = 0;
 			resolve_path (path, sizeof (path), arg);
 		}
 		else {
@@ -3944,9 +3978,9 @@ void interface_cmdline_append (int server_sock, lists_t_strs *args)
 
 			plist_cat (&saved_plist, &new);
 			if (options_get_bool("SavePlaylist")) {
-				fill_tags (&saved_plist, TAGS_COMMENTS
-						| TAGS_TIME, 1);
-				plist_save (&saved_plist, create_file_name (PLAYLIST_FILE), 1);
+				if (options_get_bool("SavePlaylistTags"))
+					fill_tags (&saved_plist, TAGS_COMMENTS | TAGS_TIME, 1);
+				plist_save (&saved_plist, create_file_name (PLAYLIST_FILE), 1, options_get_bool("SavePlaylistTags"));
 			}
 
 			plist_free (&saved_plist);
@@ -4046,9 +4080,9 @@ void interface_cmdline_file_info (const int server_sock)
 		puts ("State: STOP");
 	else {
 		int left;
-		char curr_time_str[6];
-		char time_left_str[6];
-		char time_str[6];
+		char curr_time_str[32];
+		char time_left_str[32];
+		char time_str[32];
 		char *title;
 
 		if (curr_file.state == STATE_PLAY)
@@ -4216,6 +4250,18 @@ void interface_cmdline_seek_by (int server_sock, const int seek_by)
 	seek (seek_by);
 }
 
+void interface_cmdline_set_rating (int server_sock, int rating)
+{
+	if (rating < 0) rating = 0;
+	if (rating > 5) rating = 5;
+
+	srv_sock = server_sock; /* the interface is not initialized, so set it here */
+
+	send_int_to_srv (CMD_SET_RATING);
+	send_str_to_srv ("");
+	send_int_to_srv (rating);
+}
+
 void interface_cmdline_jump_to (int server_sock, const int pos)
 {
 	srv_sock = server_sock; /* the interface is not initialized, so set it here */
@@ -4334,13 +4380,13 @@ void interface_cmdline_formatted_info (const int server_sock,
 		char *rate;
 	} info_t;
 
-	char curr_time_str[6];
-	char time_left_str[6];
-	char time_str[6];
-	char time_sec_str[5];
-	char curr_time_sec_str[5];
-	char file_bitrate_str[4];
-	char file_rate_str[3];
+	char curr_time_str[32];
+	char time_left_str[32];
+	char time_str[32];
+	char time_sec_str[16];
+	char curr_time_sec_str[16];
+	char file_bitrate_str[16];
+	char file_rate_str[16];
 
 	char *fmt, *str;
 	info_t str_info;
@@ -4433,11 +4479,14 @@ void interface_cmdline_formatted_info (const int server_sock,
 		str_info.album = curr_file.tags->album ? curr_file.tags->album : NULL;
 
 		if (curr_file.tags->time != -1)
-			snprintf(time_sec_str, 5, "%d", curr_file.tags->time);
+			snprintf(time_sec_str, sizeof(file_rate_str),
+			         "%d", curr_file.tags->time);
 
-		snprintf(curr_time_sec_str, 5, "%d", curr_file.curr_time);
-		snprintf(file_bitrate_str, 4, "%d", MAX(curr_file.bitrate, 0));
-		snprintf(file_rate_str, 3, "%d", curr_file.rate);
+		snprintf(curr_time_sec_str, sizeof(file_rate_str),
+		         "%d", curr_file.curr_time);
+		snprintf(file_bitrate_str, sizeof(file_rate_str),
+		         "%d", MAX(curr_file.bitrate, 0));
+		snprintf(file_rate_str, sizeof(file_rate_str), "%d", curr_file.rate);
 	}
 
 	/* string with formatting tags */

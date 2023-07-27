@@ -45,11 +45,8 @@
 
 static int mocp_argc;
 static const char **mocp_argv;
-
-#ifndef OPENWRT
 static int popt_next_val = 1;
 static char *render_popt_command_line ();
-#endif
 
 /* List of MOC-specific environment variables. */
 static struct {
@@ -78,10 +75,12 @@ struct parameters
 	int unpause;
 	int next;
 	int previous;
+	int rate;
 	int get_file_info;
 	int toggle_pause;
 	int playit;
 	int seek_by;
+	int new_rating;
 	char jump_type;
 	int jump_to;
 	char *formatted_info_param;
@@ -255,6 +254,8 @@ static void server_command (struct parameters *params, lists_t_strs *args)
 		interface_cmdline_file_info (sock);
 	if (params->seek_by)
 		interface_cmdline_seek_by (sock, params->seek_by);
+	if (params->rate)
+		interface_cmdline_set_rating (sock, params->new_rating);
 	if (params->jump_type=='%')
 		interface_cmdline_jump_to_percent (sock,params->jump_to);
 	if (params->jump_type=='s')
@@ -360,6 +361,9 @@ static void show_version ()
 #ifdef HAVE_SAMPLERATE
 	printf (" resample");
 #endif
+#ifdef HAVE_MPRIS
+	printf (" MPRIS/D-Bus");
+#endif
 	putchar ('\n');
 
 	rc = uname (&uts);
@@ -412,7 +416,6 @@ static void show_help (poptContext ctx)
 }
 
 /* Show POPT-interpreted command line arguments. */
-#ifndef OPENWRT
 static void show_args ()
 {
 	if (mocp_argc > 0) {
@@ -431,7 +434,6 @@ static void show_args ()
 		free (str);
 	}
 }
-#endif
 
 /* Disambiguate the user's request. */
 static void show_misc_cb (poptContext ctx,
@@ -448,13 +450,11 @@ static void show_misc_cb (poptContext ctx,
 		show_help (ctx);
 		break;
 	case 0:
-#ifndef OPENWRT
 		if (!strcmp (opt->longName, "echo-args"))
 			show_args ();
 		else
-#endif
-		if (!strcmp (opt->longName, "usage"))
-			show_usage (ctx);
+			if (!strcmp (opt->longName, "usage"))
+				show_usage (ctx);
 		break;
 	}
 
@@ -473,6 +473,7 @@ enum {
 	CL_NOSYNC,
 	CL_ASCII,
 	CL_JUMP,
+	CL_RATE,
 	CL_GETINFO
 };
 
@@ -527,6 +528,8 @@ static struct poptOption server_opts[] = {
 			"Play the previous song", NULL},
 	{"seek", 'k', POPT_ARG_INT, &params.seek_by, CL_NOIFACE,
 			"Seek by N seconds (can be negative)", "N"},
+	{"rate", '*', POPT_ARG_INT, &params.new_rating, CL_RATE,
+			"Rate current song N stars (N=0..5)", "N"},
 	{"jump", 'j', POPT_ARG_STRING, NULL, CL_JUMP,
 			"Jump to some position in the current track", "N{%,s}"},
 	{"volume", 'v', POPT_ARG_STRING, &params.adj_volume, CL_NOIFACE,
@@ -564,10 +567,8 @@ static struct poptOption misc_opts[] = {
 	       (void *) (uintptr_t) show_misc_cb, 0, NULL, NULL},
 	{"version", 'V', POPT_ARG_NONE, NULL, 0,
 			"Print version information", NULL},
-#ifndef OPENWRT
 	{"echo-args", 0, POPT_ARG_NONE, NULL, 0,
 			"Print POPT-interpreted arguments", NULL},
-#endif
 	{"usage", 0, POPT_ARG_NONE, NULL, 0,
 			"Print brief usage", NULL},
 	{"help", 'h', POPT_ARG_NONE, NULL, 0,
@@ -687,38 +688,62 @@ static void prepend_mocp_opts (poptContext ctx)
 	}
 }
 
+static const struct poptOption specials[] = {POPT_AUTOHELP
+                                             POPT_AUTOALIAS
+                                             POPT_TABLEEND};
+
+/* Return true iff 'opt' is a POPT AutoHelp option. */
+static inline bool is_autohelp (const struct poptOption *opt)
+{
+	const struct poptOption *autohelp = &specials[0];
+
+	return opt->argInfo == autohelp->argInfo && opt->arg == autohelp->arg;
+}
+
+/* Return true iff 'opt' is a POPT AutoAlias option. */
+static inline bool is_autoalias (const struct poptOption *opt)
+{
+	const struct poptOption *autoalias = &specials[1];
+
+	return opt->argInfo == autoalias->argInfo && opt->arg == autoalias->arg;
+}
+
+/* Return true iff 'opt' is the POPT end-of-table marker. */
+static inline bool is_tableend (const struct poptOption *opt)
+{
+	const struct poptOption *tableend = &specials[2];
+
+	return opt->longName == tableend->longName &&
+	       opt->shortName == tableend->shortName &&
+	       opt->arg == tableend->arg;
+}
+
 /* Return a copy of the POPT option table structure which is suitable
  * for rendering the POPT expansions of the command line. */
-#ifndef OPENWRT
 struct poptOption *clone_popt_options (struct poptOption *opts)
 {
-	size_t count, ix, iy = 0;
+	size_t tally, ix, iy = 0;
 	struct poptOption *result;
-	const struct poptOption specials[] = {POPT_AUTOHELP
-	                                      POPT_AUTOALIAS
-	                                      POPT_TABLEEND};
 
 	assert (opts);
 
-	for (count = 1;
-	     memcmp (&opts[count - 1], &specials[2], sizeof (struct poptOption));
-	     count += 1);
+	for (tally = 1; !is_tableend (&opts[tally - 1]); tally += 1);
 
-	result = xcalloc (count, sizeof (struct poptOption));
+	result = xcalloc (tally, sizeof (struct poptOption));
 
-	for (ix = 0; ix < count; ix += 1) {
+	for (ix = 0; ix < tally; ix += 1) {
 		if (opts[ix].argInfo == POPT_ARG_CALLBACK)
 			continue;
 
-		if (!memcmp (&opts[ix], &specials[0], sizeof (struct poptOption)))
+		if (is_autohelp (&opts[ix]))
 			continue;
 
-		if (!memcmp (&opts[ix], &specials[1], sizeof (struct poptOption)))
+		if (is_autoalias (&opts[ix]))
 			continue;
 
 		memcpy (&result[iy], &opts[ix], sizeof (struct poptOption));
 
-		if (!memcmp (&opts[ix], &specials[2], sizeof (struct poptOption)))
+		if (is_tableend (&opts[ix]))
 			continue;
 
 		if (opts[ix].argInfo == POPT_ARG_INCLUDE_TABLE) {
@@ -750,42 +775,31 @@ struct poptOption *clone_popt_options (struct poptOption *opts)
 
 	return result;
 }
-#endif
 
 /* Free a copied POPT option table structure. */
-#ifndef OPENWRT
 void free_popt_clone (struct poptOption *opts)
 {
 	int ix;
-	const struct poptOption table_end = POPT_TABLEEND;
 
 	assert (opts);
 
-	for (ix = 0; memcmp (&opts[ix], &table_end, sizeof (table_end)); ix += 1) {
+	for (ix = 0; !is_tableend (&opts[ix]); ix += 1) {
 		if (opts[ix].argInfo == POPT_ARG_INCLUDE_TABLE)
 			free_popt_clone (opts[ix].arg);
 	}
 
 	free (opts);
 }
-#endif
 
 /* Return a pointer to the copied POPT option table entry for which the
  * 'val' field matches 'wanted'.  */
-#ifndef OPENWRT
 struct poptOption *find_popt_option (struct poptOption *opts, int wanted)
 {
-	int ix = 0;
-	const struct poptOption table_end = POPT_TABLEEND;
-
 	assert (opts);
 	assert (LIMIT(wanted, popt_next_val));
 
-	while (1) {
+	for (size_t ix = 0; !is_tableend (&opts[ix]); ix += 1) {
 		struct poptOption *result;
-
-		if (!memcmp (&opts[ix], &table_end, sizeof (table_end)))
-			break;
 
 		assert (opts[ix].argInfo != POPT_ARG_CALLBACK);
 
@@ -797,6 +811,7 @@ struct poptOption *find_popt_option (struct poptOption *opts, int wanted)
 			result = find_popt_option (opts[ix].arg, wanted);
 			if (result)
 				return result;
+			break;
 		case POPT_ARG_STRING:
 		case POPT_ARG_INT:
 		case POPT_ARG_LONG:
@@ -804,7 +819,6 @@ struct poptOption *find_popt_option (struct poptOption *opts, int wanted)
 		case POPT_ARG_DOUBLE:
 		case POPT_ARG_VAL:
 		case POPT_ARG_NONE:
-			ix += 1;
 			break;
 		default:
 			fatal ("Unknown POPT option table argInfo type: %d",
@@ -814,10 +828,8 @@ struct poptOption *find_popt_option (struct poptOption *opts, int wanted)
 
 	return NULL;
 }
-#endif
 
 /* Render the command line as interpreted by POPT. */
-#ifndef OPENWRT
 static char *render_popt_command_line ()
 {
 	int rc;
@@ -901,7 +913,6 @@ err:
 
 	return result;
 }
-#endif
 
 static void override_config_option (const char *arg, lists_t_strs *deferred)
 {
@@ -1032,6 +1043,10 @@ static void process_options (poptContext ctx, lists_t_strs *deferred)
 			//TODO: Add message explaining the error
 			show_usage (ctx);
 			exit (EXIT_FAILURE);
+		case CL_RATE:
+			params.rate = 1;
+			params.allow_iface = 0;
+			break;
 		case CL_GETINFO:
 			params.get_formatted_info = 1;
 			params.allow_iface = 0;
@@ -1045,23 +1060,17 @@ static void process_options (poptContext ctx, lists_t_strs *deferred)
 	}
 
 	if (rc < -1) {
-		const char *opt, *alias, *reason;
+		const char *opt, *alias;
 
 		opt = poptBadOption (ctx, 0);
 		alias = poptBadOption (ctx, POPT_BADOPTION_NOALIAS);
-		reason = poptStrerror (rc);
-
-#ifdef OPENWRT
-		if (!strcmp (opt, "--echo-args"))
-			reason = "Not available on OpenWRT";
-#endif
 
 		/* poptBadOption() with POPT_BADOPTION_NOALIAS fails to
 		 * return the correct option if poptStuffArgs() was used. */
 		if (!strcmp (opt, alias) || getenv ("MOCP_OPTS"))
-			fatal ("%s: %s", opt, reason);
+			fatal ("%s: %s", opt, poptStrerror (rc));
 		else
-			fatal ("%s (aliased by %s): %s", opt, alias, reason);
+			fatal ("%s (aliased by %s): %s", opt, alias, poptStrerror (rc));
 	}
 
 	if (params.config_file && params.no_config_file)
@@ -1168,7 +1177,7 @@ static void log_command_line ()
 /* Log the command line as interpreted by POPT. */
 static void log_popt_command_line ()
 {
-#if !defined(NDEBUG) && !defined(OPENWRT)
+#ifndef NDEBUG
 	if (mocp_argc > 0) {
 		char *str;
 

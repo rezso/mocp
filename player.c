@@ -379,6 +379,7 @@ static void show_tags (const struct file_tags *tags DEBUG_ONLY)
 	debug ("TAG[album]: %s", tags->album ? tags->album : "N/A");
 	debug ("TAG[artist]: %s", tags->artist ? tags->artist : "N/A");
 	debug ("TAG[track]: %d", tags->track);
+	debug ("TAG[track]: %d", tags->rating);
 }
 
 /* Update tags if tags from the decoder or the stream are available. */
@@ -835,7 +836,7 @@ static void fill_cb (struct io_stream *unused1 ATTR_UNUSED, size_t fill,
 		size_t unused2 ATTR_UNUSED, void *unused3 ATTR_UNUSED)
 {
 	if (prebuffering) {
-		char msg[32];
+		char msg[64];
 
 		sprintf (msg, "Prebuffering %zu/%d KB", fill / 1024U,
 		              options_get_int("Prebuffering"));

@@ -61,6 +61,8 @@ struct option
 static struct option options[OPTIONS_MAX];
 static int options_num = 0;
 
+/* We build these only once in options_parse */
+const char * options_rating_strings[6] = {NULL};
 
 /* Returns the str's hash using djb2 algorithm. */
 static unsigned int hash (const char * str)
@@ -374,6 +376,7 @@ static void add_path (const char *name, const char *value, options_t_check *chec
 		if (rc >= PATH_MAX)
 			fatal ("Path too long!");
 		options[pos].value.str = xstrdup (path);
+		free(path);
 	}
 	else
 		options[pos].value.str = xstrdup (value);
@@ -522,6 +525,7 @@ void options_set_path (const char *name, const char *value)
 		if (rc >= PATH_MAX)
 			fatal ("Path too long!");
 		options[opt].value.str = xstrdup (path);
+		free(path);
 	}
 	else
 		options[opt].value.str = xstrdup (value);
@@ -619,6 +623,41 @@ void options_ignore_config (const char *name)
 #define CHECK_FUNCTION      check_function, 0
 #define CHECK_NONE          check_true, 0
 
+static void build_rating_strings()
+{
+	const char **S = options_rating_strings;
+	const char *s0 = options_get_str ("RatingSpace");
+	const char *s1 = options_get_str ("RatingStar");
+	if (!s0) s0 = " ";
+	if (!s1) s1 = "*";
+	const size_t l0 = strlen (s0), l1 = strlen (s1);
+
+	for (int i = 0; i <= 5; ++i)
+	{
+		free ((void*)S[i]);
+
+		/* allocate space for i stars and 5-i spaces */
+		char *s = xmalloc (i*l1 + (5-i)*l0 + 1);
+		if (!s) fatal ("Failed to allocate rating string");
+		S[i] = s;
+
+		for (int j = 0; j < 5; ++j)
+		{
+			if (j < i)
+			{
+				memcpy (s, s1, l1);
+				s += l1;
+			}
+			else
+			{
+				memcpy (s, s0, l0);
+				s += l0;
+			}
+		}
+		*s = 0;
+	}
+}
+
 /* Make a table of options and its default values. */
 void options_init ()
 {
@@ -701,8 +740,13 @@ void options_init ()
 	add_bool ("Precache", true);
 	add_bool ("SavePlaylist", true);
 	add_bool ("SyncPlaylist", true);
+	add_bool ("SavePlaylistTags", false);
 	add_str  ("Keymap", NULL, CHECK_NONE);
 	add_bool ("ASCIILines", false);
+	add_bool ("RatingShow", true);
+	add_str  ("RatingStar",  "*", CHECK_NONE);
+	add_str  ("RatingSpace", " ", CHECK_NONE);
+	add_str  ("RatingFile", "ratings", CHECK_NONE);
 
 	add_path ("FastDir1", NULL, CHECK_NONE);
 	add_path ("FastDir2", NULL, CHECK_NONE);
@@ -736,7 +780,7 @@ void options_init ()
 	add_symb ("ResampleMethod", "Linear",
 	                 CHECK_SYMBOL(5), "SincBestQuality", "SincMediumQuality",
 	                                  "SincFastest", "ZeroOrderHold", "Linear");
-	add_int  ("EnableResample", 0, CHECK_RANGE(1), 0, 2);
+	add_int  ("EnableResample", 1, CHECK_RANGE(1), 0, 2);
 	add_int  ("MaxSamplerate", 0, CHECK_RANGE(1), 0, 500000);
 	add_int  ("MaxChannels", 0, CHECK_RANGE(1), 0, 500000);
 	add_list ("MaskOutputFormats","",CHECK_NONE);
@@ -814,9 +858,13 @@ void options_init ()
 
 	add_path ("OnSongChange", NULL, CHECK_NONE);
 	add_bool ("RepeatSongChange", false);
+	add_path ("OnServerStart", NULL, CHECK_NONE);
+	add_path ("OnServerStop", NULL, CHECK_NONE);
 	add_path ("OnStop", NULL, CHECK_NONE);
 
 	add_bool ("QueueNextSongReturn", false);
+
+	build_rating_strings(); /* in case options_parse never gets called */
 }
 
 /* Return 1 if a parameter to an integer option is valid. */
@@ -1224,6 +1272,8 @@ void options_parse (const char *config_file)
 	sanity_check ();
 
 	fclose (file);
+
+	build_rating_strings();
 }
 
 void options_free ()

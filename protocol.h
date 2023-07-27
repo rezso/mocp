@@ -146,6 +146,7 @@ enum noblock_io_status
 #define CMD_QUEUE_MOVE	0x3d /* move an item in the queue */
 #define CMD_QUEUE_CLEAR	0x3e /* clear the queue */
 #define CMD_GET_QUEUE	0x3f /* request the queue from the server */
+#define CMD_SET_RATING	0x40 /* change rating for a file */
 
 char *socket_name ();
 int get_int (int sock, int *i);
@@ -168,6 +169,7 @@ void event_pop (struct event_queue *q);
 void event_push (struct event_queue *q, const int event, void *data);
 int event_queue_empty (const struct event_queue *q);
 enum noblock_io_status event_send_noblock (int sock, struct event_queue *q);
+struct tag_ev_response *tag_ev_data_dup (const struct tag_ev_response *d);
 void free_tag_ev_data (struct tag_ev_response *d);
 void free_move_ev_data (struct move_ev_data *m);
 struct move_ev_data *move_ev_data_dup (const struct move_ev_data *m);

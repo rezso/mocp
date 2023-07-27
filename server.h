@@ -26,6 +26,7 @@ void tags_response (const int client_id, const char *file,
 void ev_audio_start ();
 void ev_audio_stop ();
 void server_queue_pop (const char *filename);
+void add_event_all (const int event, const void *data);
 
 #ifdef __cplusplus
 }

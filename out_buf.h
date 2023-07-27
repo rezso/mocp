@@ -19,7 +19,7 @@ void out_buf_unpause (struct out_buf *buf);
 void out_buf_stop (struct out_buf *buf);
 void out_buf_reset (struct out_buf *buf);
 void out_buf_time_set (struct out_buf *buf, const float time);
-int out_buf_time_get (struct out_buf *buf);
+float out_buf_time_get (struct out_buf *buf);
 void out_buf_set_free_callback (struct out_buf *buf,
 		out_buf_free_callback callback);
 int out_buf_get_free (struct out_buf *buf);

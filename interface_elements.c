@@ -785,6 +785,8 @@ static void side_menu_init (struct side_menu *m, const enum side_menu_type type,
 				options_get_bool("ShowFormat"));
 		menu_set_show_time (m->menu.list.main,
 				strcasecmp(options_get_symb("ShowTime"), "no"));
+		menu_set_show_rating (m->menu.list.main,
+				options_get_bool("RatingShow"));
 		menu_set_info_attr_normal (m->menu.list.main,
 				get_color(CLR_MENU_ITEM_INFO));
 		menu_set_info_attr_sel (m->menu.list.main,
@@ -1046,7 +1048,7 @@ static int add_to_menu (struct menu *menu, const struct plist *plist,
 	free (title);
 
 	if (item->tags && item->tags->time != -1) {
-		char time_str[6];
+		char time_str[32];
 
 		sec_to_min (time_str, item->tags->time);
 		menu_item_set_time (added, time_str);
@@ -1085,6 +1087,7 @@ static void side_menu_clear (struct side_menu *m)
 	menu_set_show_format (m->menu.list.main, options_get_bool("ShowFormat"));
 	menu_set_show_time (m->menu.list.main,
 			strcasecmp(options_get_symb("ShowTime"), "no"));
+	menu_set_show_rating (m->menu.list.main, options_get_bool("RatingShow"));
 	menu_set_info_attr_normal (m->menu.list.main, get_color(CLR_MENU_ITEM_INFO));
 	menu_set_info_attr_sel (m->menu.list.main, get_color(CLR_MENU_ITEM_INFO_SELECTED));
 	menu_set_info_attr_marked (m->menu.list.main, get_color(CLR_MENU_ITEM_INFO_MARKED));
@@ -1399,13 +1402,18 @@ static void update_menu_item (struct menu_item *mi,
 	item = &plist->items[n];
 
 	if (item->tags && item->tags->time != -1) {
-		char time_str[6];
+		char time_str[32];
 
 		sec_to_min (time_str, item->tags->time);
 		menu_item_set_time (mi, time_str);
 	}
 	else
 		menu_item_set_time (mi, "");
+
+	int r = (item->tags && item->tags->filled & TAGS_RATING) ? item->tags->rating : 0;
+	if (r < 0) r = 0;
+	if (r > 5) r = 5;
+	menu_item_set_rating (mi, options_rating_strings[r]);
 
 	made_from_tags = (options_get_bool ("ReadTags") && item->title_tags);
 
@@ -2520,8 +2528,13 @@ static void bar_update_title (struct bar *b)
 	else {
 		sprintf (b->title, "%*s", b->width - 7, b->orig_title);
 		strcpy (pct, " 100%  ");
+
+		/* The snprintf(3) below can never output 310 bytes! */
+		SUPPRESS_FORMAT_TRUNCATION_WARNING
 		if (b->filled < 99.99)
 			snprintf (pct, sizeof (pct), "  %02.0f%%  ", b->filled);
+		UNSUPPRESS_FORMAT_TRUNCATION_WARNING
+
 		strncpy (&b->title[b->width - 7], pct, strlen (pct));
 	}
 }
@@ -2873,7 +2886,7 @@ static void info_win_set_state (struct info_win *w, const int state)
 
 static void info_win_draw_time (const struct info_win *w)
 {
-	char time_str[6];
+	char time_str[32];
 
 	assert (w != NULL);
 
@@ -3308,7 +3321,7 @@ static void info_win_set_option_state (struct info_win *w, const char *name,
 }
 
 /* Convert time in second to min:sec text format(for total time in playlist).
- * buff must be 10 chars long. */
+ * 'buff' must be 48 chars long. */
 static void sec_to_min_plist (char *buff, const int seconds)
 {
 	assert (seconds >= 0);
@@ -3320,7 +3333,7 @@ static void sec_to_min_plist (char *buff, const int seconds)
 		min  = (seconds / 60) % 60;
 		sec  = seconds % 60;
 
-		snprintf (buff, 10, "%03d:%02d:%02d", hour, min, sec);
+		snprintf (buff, 48, "%03d:%02d:%02d", hour, min, sec);
 	}
 	else
 		strcpy (buff, "!!!!!!!!!");
@@ -3331,7 +3344,7 @@ static void info_win_draw_files_time (const struct info_win *w)
 	assert (w != NULL);
 
 	if (!w->in_entry && !w->too_small) {
-		char buf[10];
+		char buf[48];
 
 		sec_to_min_plist (buf, w->plist_time);
 		wmove (w->win, 0, COLS - 12);
@@ -3891,6 +3904,10 @@ void iface_get_key (struct iface_key *k)
 	if (ch == (wint_t)ERR)
 		interface_fatal ("wgetch() failed!");
 
+	/* Handle keypad ENTER as newline. */
+	if (ch == KEY_ENTER)
+		ch = '\n';
+
 	if (ch < 32 && ch != '\n' && ch != '\t' && ch != KEY_ESCAPE) {
 		/* Unprintable, generally control sequences */
 		k->type = IFACE_KEY_FUNCTION;
@@ -4127,10 +4144,10 @@ void iface_error (const char *msg)
 /* Handle screen resizing. */
 void iface_resize ()
 {
-	check_term_size (&main_win, &info_win);
-	validate_layouts ();
 	endwin ();
 	refresh ();
+	check_term_size (&main_win, &info_win);
+	validate_layouts ();
 	main_win_resize (&main_win);
 	info_win_resize (&info_win);
 	iface_refresh_screen ();
@@ -4327,7 +4344,7 @@ void iface_handle_lyrics_key (const struct iface_key *k)
 void iface_toggle_layout ()
 {
 	static int curr_layout = 1;
-	char layout_option[10];
+	char layout_option[32];
 	lists_t_strs *layout_fmt;
 
 	if (++curr_layout > 3)

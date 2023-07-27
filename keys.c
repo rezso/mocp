@@ -520,6 +520,54 @@ static struct command commands[] = {
 		1
 	},
 	{
+		KEY_CMD_RATE_0,
+		"rate_0",
+		"Set rating to 0 stars",
+		CON_MENU,
+		{ '0', -1 },
+		1
+	},
+	{
+		KEY_CMD_RATE_1,
+		"rate_1",
+		"Set rating to 1 star",
+		CON_MENU,
+		{ '1', -1 },
+		1
+	},
+	{
+		KEY_CMD_RATE_2,
+		"rate_2",
+		"Set rating to 2 stars",
+		CON_MENU,
+		{ '2', -1 },
+		1
+	},
+	{
+		KEY_CMD_RATE_3,
+		"rate_3",
+		"Set rating to 3 stars",
+		CON_MENU,
+		{ '3', -1 },
+		1
+	},
+	{
+		KEY_CMD_RATE_4,
+		"rate_4",
+		"Set rating to 4 stars",
+		CON_MENU,
+		{ '4', -1 },
+		1
+	},
+	{
+		KEY_CMD_RATE_5,
+		"rate_5",
+		"Set rating to 5 stars",
+		CON_MENU,
+		{ '5', -1 },
+		1
+	},
+	{
 		KEY_CMD_SEEK_0,
 		"seek_0",
 		"Seek to start of song",
@@ -1034,14 +1082,6 @@ static int parse_key (const char *symbol)
 
 	if (strlen(symbol) == 1) {
 		/* Just a regular char */
-		static bool digit_key_warned = false;
-		if (!digit_key_warned && isdigit (symbol[0])) {
-			fprintf (stderr,
-			         "\n\tUsing digits as keys is deprecated as they may"
-			         "\n\tbe used for specific purposes in release 2.6.\n");
-			xsleep (5, 1);
-			digit_key_warned = true;
-		}
 		return symbol[0];
 	}
 

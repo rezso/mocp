@@ -68,7 +68,7 @@ struct out_buf
 
 /* Don't play more than this value (in seconds) in one audio_play().
  * This prevents locking. */
-#define AUDIO_MAX_PLAY		0.1
+#define AUDIO_MAX_PLAY		0.01
 #define AUDIO_MAX_PLAY_BYTES	32768
 
 #ifdef OUT_TEST
@@ -396,9 +396,9 @@ void out_buf_time_set (struct out_buf *buf, const float time)
  * previous audio then the value returned may be negative and it is
  * up to the caller to handle this appropriately in the context of
  * its own processing. */
-int out_buf_time_get (struct out_buf *buf)
+float out_buf_time_get (struct out_buf *buf)
 {
-	int time;
+	float time;
 	int bps = audio_get_bps ();
 
 	LOCK (buf->mutex);

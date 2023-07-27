@@ -528,7 +528,7 @@ static char *float_to_fixed (const float *buf, const size_t samples,
 	return new_snd;
 }
 
-static void change_sign_8 (uint8_t *buf, const size_t samples)
+static inline void change_sign_8 (uint8_t *buf, const size_t samples)
 {
 	size_t i;
 
@@ -536,7 +536,7 @@ static void change_sign_8 (uint8_t *buf, const size_t samples)
 		*buf++ ^= 1 << 7;
 }
 
-static void change_sign_16 (uint16_t *buf, const size_t samples)
+static inline void change_sign_16 (uint16_t *buf, const size_t samples)
 {
 	size_t i;
 
@@ -544,7 +544,7 @@ static void change_sign_16 (uint16_t *buf, const size_t samples)
 		*buf++ ^= 1 << 15;
 }
 
-static void change_sign_24 (uint32_t *buf, const size_t samples)
+static inline void change_sign_24 (uint32_t *buf, const size_t samples)
 {
 	size_t i;
 
@@ -552,7 +552,7 @@ static void change_sign_24 (uint32_t *buf, const size_t samples)
 		*buf++ ^= 1 << 23;
 }
 
-static void change_sign_32 (uint32_t *buf, const size_t samples)
+static inline void change_sign_32 (uint32_t *buf, const size_t samples)
 {
 	size_t i;
 
@@ -606,7 +606,7 @@ static void change_sign (char *buf, const size_t size, long *fmt)
 	}
 }
 
-void audio_conv_bswap_16 (int16_t *buf, const size_t num)
+static inline void audio_conv_bswap_16 (int16_t *buf, const size_t num)
 {
 	size_t i;
 
@@ -614,7 +614,7 @@ void audio_conv_bswap_16 (int16_t *buf, const size_t num)
 		buf[i] = bswap_16 (buf[i]);
 }
 
-void audio_conv_bswap_24 (int8_t *buf, const size_t num)
+static inline void audio_conv_bswap_24 (int8_t *buf, const size_t num)
 {
 	size_t i;
         int8_t tmp;
@@ -626,7 +626,7 @@ void audio_conv_bswap_24 (int8_t *buf, const size_t num)
         }
 }
 
-void audio_conv_bswap_32 (int32_t *buf, const size_t num)
+static inline void audio_conv_bswap_32 (int32_t *buf, const size_t num)
 {
 	size_t i;
 
@@ -704,7 +704,7 @@ int audio_conv_new (struct audio_conversion *conv,
 		else
 			fatal ("Bad ResampleMethod option: %s", method);
 
-		conv->src_state = src_new (resample_type, to->channels, &err);
+		conv->src_state = src_new (resample_type, from->channels, &err);
 		if (!conv->src_state) {
 			error ("Can't resample from %dHz to %dHz: %s",
 					from->rate, to->rate, src_strerror (err));
@@ -749,19 +749,11 @@ static float *resample_sound (struct audio_conversion *conv, const float *buf,
 	resample_data.output_frames = resample_data.input_frames
 		* resample_data.src_ratio;
 
-	if (conv->resample_buf) {
-		conv->resample_buf = (float *)xrealloc (conv->resample_buf,
-				sizeof(float) * resample_data.input_frames
-				* nchannels);
-		new_input_start = conv->resample_buf
-			+ conv->resample_buf_nsamples;
-	}
-	else {
-		conv->resample_buf = (float *)xmalloc (sizeof(float)
-				* resample_data.input_frames
-				* nchannels);
-		new_input_start = conv->resample_buf;
-	}
+	assert (conv->resample_buf || conv->resample_buf_nsamples == 0);
+	conv->resample_buf = xrealloc (conv->resample_buf,
+	                               sizeof(float) * nchannels *
+	                               resample_data.input_frames);
+	new_input_start = conv->resample_buf + conv->resample_buf_nsamples;
 
 	output = (float *)xmalloc (sizeof(float) * resample_data.output_frames
 				* nchannels);
@@ -1005,7 +997,15 @@ static uint16_t *u24_to_u16 (uint32_t *in, const size_t samples)
 
 /* Do the sound conversion.  buf of length size is the sample buffer to
  * convert and the size of the converted sound is put into *conv_len.
- * Return the converted sound in malloc()ed memory. */
+ * Return the converted sound in malloc()ed memory.
+ *
+ * Conversion workflow:
+ *   1. Change endianness
+ *   2. Change sample format (to float or target SFMT if no resampling needed)
+ *   3. Resample
+ *   4. Change sample format to destination SFMT
+ *   5. Up/downmix channels
+*/
 char *audio_conv (struct audio_conversion *conv, const char *buf,
 		const size_t size, size_t *conv_len)
 {
@@ -1144,7 +1144,7 @@ char *audio_conv (struct audio_conversion *conv, const char *buf,
 	if (conv->from.rate != conv->to.rate) {
 		char *new_sound = (char *)resample_sound (conv,
 				(float *)curr_sound,
-				*conv_len / sizeof(float), conv->to.channels,
+				*conv_len / sizeof(float), conv->from.channels,
 				conv_len);
 		*conv_len *= sizeof(float);
 		if (curr_sound != buf)

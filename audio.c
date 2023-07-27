@@ -64,7 +64,7 @@ static pthread_t playing_thread = 0;  /* tid of play thread */
 static int play_thread_running = 0;
 
 /* currently played file */
-static int curr_playing = -1;
+int curr_playing = -1;
 /* file we played before playing songs from queue */
 static char *before_queue_fname = NULL;
 static char *curr_playing_fname = NULL;
@@ -72,7 +72,7 @@ static char *curr_playing_fname = NULL;
  * so we know that when the queue is empty, we should play the regular
  * playlist from the beginning. */
 static int started_playing_in_queue = 0;
-static pthread_mutex_t curr_playing_mtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t curr_playing_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 static struct out_buf *out_buf;
 static struct hw_funcs hw;
@@ -93,8 +93,8 @@ static pthread_mutex_t request_mtx = PTHREAD_MUTEX_INITIALIZER;
 static struct plist playlist;
 static struct plist shuffled_plist;
 static struct plist queue;
-static struct plist *curr_plist; /* currently used playlist */
-static pthread_mutex_t plist_mtx = PTHREAD_MUTEX_INITIALIZER;
+struct plist *curr_plist; /* currently used playlist */
+pthread_mutex_t plist_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 /* Is the audio device opened? */
 static int audio_opened = 0;
@@ -113,10 +113,6 @@ static int need_audio_conversion = 0;
 static char *last_stream_url = NULL;
 
 static int current_mixer = 0;
-
-/* Check if the two sample rates don't differ so much that we can't play. */
-#define sample_rate_compat(sound, device) ((device) * 1.05 >= sound \
-		&& (device) * 0.95 <= sound)
 
 /* Make a human readable description of the sound sample format(s).
  * Put the description in msg which is of size buf_size.
@@ -328,10 +324,6 @@ static long sfmt_best_matching (const long formats_with_endian,
 			best = SFMT_S8;
 		else if (formats & SFMT_U8)
 			best = SFMT_U8;
-		else if (formats & SFMT_S24_3)
-			best = SFMT_S24_3;
-		else if (formats & SFMT_U24_3)
-			best = SFMT_U24_3;
 	}
 	else if (req == SFMT_FLOAT) {
 		if (formats & SFMT_S32)
@@ -831,6 +823,17 @@ int audio_open (struct sound_params *sound_params)
 		case 1:
 			max_rate = (max_rate == 0) || (hw_caps.max_rate < max_rate) ? hw_caps.max_rate : max_rate;
 			driver_sound_params.rate = CLAMP(hw_caps.min_rate,req_sound_params.rate,max_rate);
+
+			/* check if it is possible to chose a sample rate which would be a multiple of req sample rate */
+			if (driver_sound_params.rate > req_sound_params.rate && driver_sound_params.rate % req_sound_params.rate !=0 ) {
+				if (req_sound_params.rate*2 >= hw_caps.min_rate && req_sound_params.rate*2 <= max_rate)
+					driver_sound_params.rate = req_sound_params.rate*2;
+				else if (req_sound_params.rate*3 >= hw_caps.min_rate && req_sound_params.rate*3 <= max_rate)
+					driver_sound_params.rate = req_sound_params.rate*3;
+				else if (req_sound_params.rate*4 >= hw_caps.min_rate && req_sound_params.rate*4 <= max_rate)
+					driver_sound_params.rate = req_sound_params.rate*4;
+			}
+
 			break;
 		default:
 			driver_sound_params.rate = req_sound_params.rate;
@@ -850,15 +853,12 @@ int audio_open (struct sound_params *sound_params)
 		char fmt_name[SFMT_STR_MAX] LOGIT_ONLY;
 
 		driver_sound_params.rate = hw.get_rate ();
-			debug ("Driver sfmt: %ld, req sfmt %ld",driver_sound_params.fmt, req_sound_params.fmt);
+			debug ("Driver sfmt: 0x%lX, req sfmt 0x%lX",driver_sound_params.fmt, req_sound_params.fmt);
 			debug ("Driver channels: %d, req channels %d",driver_sound_params.channels, req_sound_params.channels);
 			debug ("Driver rate: %d, req rate %d",driver_sound_params.rate, req_sound_params.rate);
 		if (driver_sound_params.fmt != req_sound_params.fmt
-				|| driver_sound_params.channels
-				!= req_sound_params.channels
-				|| (!sample_rate_compat(
-						req_sound_params.rate,
-						driver_sound_params.rate))) {
+				|| driver_sound_params.channels != req_sound_params.channels
+				|| (req_sound_params.rate != driver_sound_params.rate)) {
 			logit ("Conversion of the sound is needed.");
 			if (!audio_conv_new (&sound_conv, &req_sound_params,
 					&driver_sound_params)) {
@@ -975,7 +975,7 @@ int audio_send_pcm (const char *buf, const size_t size)
 }
 
 /* Get current time of the song in seconds. */
-int audio_get_time ()
+float audio_get_time ()
 {
 	return state != STATE_STOP ? out_buf_time_get (out_buf) : 0;
 }
@@ -1170,7 +1170,7 @@ void audio_seek (const int sec)
 		logit ("Seeking when nothing is played.");
 }
 
-void audio_jump_to (const int sec)
+void audio_jump_to (const float sec)
 {
 	int playing;
 

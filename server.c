@@ -47,6 +47,10 @@
 #include "files.h"
 #include "softmixer.h"
 #include "equalizer.h"
+#include "ratings.h"
+#ifdef HAVE_MPRIS
+# include "mpris.h"
+#endif
 
 #define SERVER_LOG	"mocp_server_log"
 #define PID_FILE	"pid"
@@ -68,6 +72,11 @@ static struct client clients[CLIENTS_MAX];
 /* Thread ID of the server thread. */
 static pthread_t server_tid;
 
+/* Thread ID of the MPRIS thread. */
+#ifdef HAVE_MPRIS
+static pthread_t mpris_tid;
+#endif
+
 /* Pipe used to wake up the server from select() from another thread. */
 static int wake_up_pipe[2];
 
@@ -75,7 +84,7 @@ static int wake_up_pipe[2];
 static int server_sock = -1;
 
 /* Set to 1 when a signal arrived causing the program to exit. */
-static volatile int server_quit = 0;
+volatile int server_quit = 0;
 
 /* Information about currently played file */
 static struct {
@@ -90,7 +99,7 @@ static struct {
 	-1
 };
 
-static struct tags_cache *tags_cache;
+struct tags_cache *tags_cache;
 
 extern char **environ;
 
@@ -320,6 +329,37 @@ static void log_pthread_stack_size ()
 #endif
 }
 
+/* Handle running external command on requested event. */
+static void run_extern_cmd (const char *event)
+{
+	char *command;
+
+	command = xstrdup (options_get_str (event));
+
+	if (command) {
+		char *args[2], *err;
+
+		args[0] = xstrdup (command);
+		args[1] = NULL;
+
+		switch (fork ()) {
+		case 0:
+			execve (command, args, environ);
+			fatal ("Error when running %s command '%s': %s",
+			        event, command, xstrerror (errno));
+		case -1:
+			err = xstrerror (errno);
+			logit ("Error when running %s command '%s': %s",
+			        event, command, err);
+			free (err);
+			break;
+		}
+
+		free (command);
+		free (args[0]);
+	}
+}
+
 /* Initialize the server - return fd of the listening socket or -1 on error */
 void server_init (int debugging, int foreground)
 {
@@ -384,6 +424,11 @@ void server_init (int debugging, int foreground)
 	tags_cache = tags_cache_new (options_get_int("TagsCacheSize"));
 	tags_cache_load (tags_cache, create_file_name("cache"));
 
+#ifdef HAVE_MPRIS
+	mpris_init ();
+	pthread_create (&mpris_tid, NULL, mpris_thread, NULL);
+#endif
+
 	server_tid = pthread_self ();
 	xsignal (SIGTERM, sig_exit);
 	xsignal (SIGINT, foreground ? sig_exit : SIG_IGN);
@@ -400,6 +445,9 @@ void server_init (int debugging, int foreground)
 		redirect_output (stdout);
 		redirect_output (stderr);
 	}
+
+	logit ("Running OnServerStart");
+	run_extern_cmd ("OnServerStart");
 
 	return;
 }
@@ -506,8 +554,8 @@ static void on_song_change ()
 				break;
 			case 'n':
 				if (curr_tags->track >= 0) {
-					str = (char *) xmalloc (sizeof (char) * 4);
-					snprintf (str, 4, "%d", curr_tags->track);
+					str = (char *) xmalloc (sizeof (char) * 16);
+					snprintf (str, 16, "%d", curr_tags->track);
 					lists_strs_push (arg_list, str);
 				}
 				else
@@ -518,8 +566,8 @@ static void on_song_change ()
 				break;
 			case 'D':
 				if (curr_tags->time >= 0) {
-					str = (char *) xmalloc (sizeof (char) * 10);
-					snprintf (str, 10, "%d", curr_tags->time);
+					str = (char *) xmalloc (sizeof (char) * 16);
+					snprintf (str, 16, "%d", curr_tags->time);
 					lists_strs_push (arg_list, str);
 				}
 				else
@@ -527,7 +575,7 @@ static void on_song_change ()
 				break;
 			case 'd':
 				if (curr_tags->time >= 0) {
-					str = (char *) xmalloc (sizeof (char) * 12);
+					str = (char *) xmalloc (sizeof (char) * 32);
 					sec_to_min (str, curr_tags->time);
 					lists_strs_push (arg_list, str);
 				}
@@ -540,6 +588,10 @@ static void on_song_change ()
 		}
 	}
 	tags_free (curr_tags);
+
+#ifdef HAVE_MPRIS
+	mpris_track_change ();
+#endif
 
 #ifndef NDEBUG
 	{
@@ -555,7 +607,8 @@ static void on_song_change ()
 	case 0:
 		args = lists_strs_save (arg_list);
 		execve (args[0], args, environ);
-		exit (EXIT_FAILURE);
+		fatal ("Error when running OnSongChange command '%s': %s",
+		        args[0], xstrerror (errno));
 	case -1:
 		log_errno ("Failed to fork()", errno);
 	}
@@ -563,36 +616,6 @@ static void on_song_change ()
 	lists_strs_free (arg_list);
 	free (last_file);
 	last_file = curr_file;
-}
-
-/* Handle running external command on Stop event. */
-static void on_stop ()
-{
-	char *command;
-
-	command = xstrdup (options_get_str("OnStop"));
-
-	if (command) {
-		char *args[2], *err;
-
-		args[0] = xstrdup (command);
-		args[1] = NULL;
-
-		switch (fork()) {
-			case 0:
-				execve (command, args, environ);
-				exit (EXIT_FAILURE);
-			case -1:
-				err = xstrerror (errno);
-				logit ("Error when running OnStop command '%s': %s",
-				        command, err);
-				free (err);
-				break;
-		}
-
-		free (command);
-		free (args[0]);
-	}
 }
 
 /* Return true iff 'event' is a playlist event. */
@@ -611,7 +634,7 @@ static inline bool is_plist_event (const int event)
 	return result;
 }
 
-static void add_event_all (const int event, const void *data)
+void add_event_all (const int event, const void *data)
 {
 	int i;
 	int added = 0;
@@ -622,7 +645,7 @@ static void add_event_all (const int event, const void *data)
 				on_song_change ();
 				break;
 			case STATE_STOP:
-				on_stop ();
+				run_extern_cmd ("OnStop");
 				break;
 		}
 	}
@@ -638,20 +661,24 @@ static void add_event_all (const int event, const void *data)
 
 		if (data) {
 			if (event == EV_PLIST_ADD
-					|| event == EV_QUEUE_ADD) {
+			 || event == EV_QUEUE_ADD) {
 				data_copy = plist_new_item ();
 				plist_item_copy (data_copy, data);
 			}
 			else if (event == EV_PLIST_DEL
-					|| event == EV_QUEUE_DEL
-					|| event == EV_STATUS_MSG
-					|| event == EV_SRV_ERROR) {
+			      || event == EV_QUEUE_DEL
+			      || event == EV_STATUS_MSG
+			      || event == EV_SRV_ERROR) {
 				data_copy = xstrdup (data);
 			}
 			else if (event == EV_PLIST_MOVE
-					|| event == EV_QUEUE_MOVE)
+			      || event == EV_QUEUE_MOVE)
 				data_copy = move_ev_data_dup (
 						(struct move_ev_data *)
+						data);
+			else if (event == EV_FILE_TAGS)
+				data_copy = tag_ev_data_dup (
+						(struct tag_ev_response *)
 						data);
 			else
 				logit ("Unhandled data!");
@@ -703,8 +730,13 @@ static void server_shutdown ()
 {
 	logit ("Server exiting...");
 	audio_exit ();
+#ifdef HAVE_MPRIS
+	mpris_exit ();
+#endif
 	tags_cache_free (tags_cache);
 	tags_cache = NULL;
+	logit ("Running OnServerStop");
+	run_extern_cmd ("OnServerStop");
 	unlink (socket_name());
 	unlink (create_file_name(PID_FILE));
 	close (wake_up_pipe[0]);
@@ -788,6 +820,58 @@ static int req_play (struct client *cli)
 	return 1;
 }
 
+/* Handle CMD_SET_RATING, return 1 if ok or 0 on error. */
+static int req_set_rating (struct client *cli)
+{
+	char *file;
+	int   rating;
+
+	if (!(file = get_str(cli->socket))) return 0;
+	if (!get_int(cli->socket, &rating))
+	{
+		free (file);
+		return 0;
+	}
+
+	if (!*file)
+	{
+		free (file);
+		file = audio_get_sname ();
+		if (!file) return 0;
+		if (!*file)
+		{
+			free (file);
+			return 0;
+		}
+	}
+
+	logit ("Rating %s %d/5", file, rating);
+	
+	if (ratings_write_file (file, rating))
+	{
+
+		struct file_tags *tags;
+		struct tag_ev_response *data;
+
+		// TODO: is this enough?
+		tags = tags_cache_get_immediate (tags_cache, file, TAGS_RATING);
+
+		data = (struct tag_ev_response *)xmalloc (sizeof(struct tag_ev_response));
+		data->file = file;
+		data->tags = tags;
+
+		add_event_all (EV_FILE_TAGS, data);
+
+		free_tag_ev_data (data); /* frees file as well */
+	}
+	else
+	{
+		free (file);
+	}
+
+	return 1;
+}
+
 /* Handle CMD_SEEK, return 1 if ok or 0 on error */
 static int req_seek (struct client *cli)
 {
@@ -798,6 +882,9 @@ static int req_seek (struct client *cli)
 
 	logit ("Seeking %ds", sec);
 	audio_seek (sec);
+#ifdef HAVE_MPRIS
+	mpris_position_change();
+#endif
 
 	return 1;
 }
@@ -833,6 +920,9 @@ static int req_jump_to (struct client *cli)
 
 	logit ("Jumping to %ds", sec);
 	audio_jump_to (sec);
+#ifdef HAVE_MPRIS
+	mpris_position_change();
+#endif
 
 	return 1;
 }
@@ -911,6 +1001,10 @@ static int get_set_option (struct client *cli)
 
 	options_set_bool (name, val ? true : false);
 	free (name);
+
+#ifdef HAVE_MPRIS
+	mpris_status_change ();
+#endif
 
 	add_event_all (EV_OPTIONS, NULL);
 
@@ -1659,6 +1753,10 @@ static void handle_command (const int client_id)
 			if (!req_send_queue(cli))
 				err = 1;
 			break;
+		case CMD_SET_RATING:
+			if (!req_set_rating(cli))
+				err = 1;
+			break;
 		default:
 			logit ("Bad command (0x%x) from the client", cmd);
 			err = 1;
@@ -1802,6 +1900,9 @@ void server_loop ()
 
 	close_clients ();
 	clients_cleanup ();
+#ifdef HAVE_MPRIS
+	pthread_join (mpris_tid, NULL);
+#endif
 	close (server_sock);
 	server_sock = -1;
 	server_shutdown ();
@@ -1834,6 +1935,9 @@ void set_info_avg_bitrate (const int avg_bitrate)
 /* Notify the client about change of the player state. */
 void state_change ()
 {
+#ifdef HAVE_MPRIS
+	mpris_status_change ();
+#endif
 	add_event_all (EV_STATE, NULL);
 }
 
@@ -1844,6 +1948,9 @@ void ctime_change ()
 
 void tags_change ()
 {
+#ifdef HAVE_MPRIS
+	mpris_track_change();
+#endif
 	add_event_all (EV_TAGS, NULL);
 }
 

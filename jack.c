@@ -200,6 +200,7 @@ static int moc_jack_init (struct output_driver_caps *caps)
 	caps->formats = SFMT_FLOAT;
 	rate = jack_get_sample_rate (client);
 	caps->max_channels = caps->min_channels = 2;
+	caps->max_rate = caps->min_rate = rate;
 
 	logit ("jack init");
 
@@ -304,7 +305,7 @@ static int moc_jack_read_mixer ()
 static void moc_jack_set_mixer (int vol)
 {
 	volume_integer = vol;
-	volume = (jack_default_audio_sample_t)((exp((double)vol / 100.0) - 1)
+	volume = (jack_default_audio_sample_t)(expm1((double)vol / 100.0)
 			/ (M_E - 1));
 }
 

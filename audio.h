@@ -240,7 +240,7 @@ void audio_unpause ();
 void audio_initialize ();
 void audio_exit ();
 void audio_seek (const int sec);
-void audio_jump_to (const int sec);
+void audio_jump_to (const float sec);
 
 int audio_open (struct sound_params *sound_params);
 int audio_send_buf (const char *buf, const size_t size);
@@ -250,7 +250,7 @@ int audio_get_bpf ();
 int audio_get_bps ();
 int audio_get_buf_fill ();
 void audio_close ();
-int audio_get_time ();
+float audio_get_time ();
 int audio_get_state ();
 int audio_get_prev_state ();
 void audio_plist_add (const char *file);

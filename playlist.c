@@ -68,6 +68,8 @@ void tags_clear (struct file_tags *tags)
 	tags->album = NULL;
 	tags->track = -1;
 	tags->time = -1;
+	tags->rating = -1;
+	tags->filled = 0;
 }
 
 /* Copy the tags data from src to dst freeing old fields if necessary. */
@@ -87,7 +89,46 @@ void tags_copy (struct file_tags *dst, const struct file_tags *src)
 
 	dst->track = src->track;
 	dst->time = src->time;
+	dst->rating = src->rating;
 	dst->filled = src->filled;
+}
+
+/* copy or move missing tags from src to dst */
+void tags_update (struct file_tags *dst, struct file_tags *src, int move)
+{
+	assert (dst && src);
+
+	if (!(dst->filled & TAGS_COMMENTS) && (src->filled & TAGS_COMMENTS))
+	{
+		assert (!dst->title && !dst->artist && !dst->album);
+
+		dst->track = src->track;
+		
+		if (move)
+		{
+			dst->title  = src->title;  src->title  = NULL;
+			dst->artist = src->artist; src->artist = NULL;
+			dst->album  = src->album;  src->album  = NULL;
+			src->filled &= ~TAGS_COMMENTS;
+		}
+		else
+		{
+			dst->title  = xstrdup (src->title);
+			dst->artist = xstrdup (src->artist);
+			dst->album  = xstrdup (src->album);
+		}
+		dst->filled |= TAGS_COMMENTS;
+	}
+	if (!(dst->filled & TAGS_TIME) && (src->filled & TAGS_TIME))
+	{
+		dst->time = src->time;
+		dst->filled |= TAGS_TIME;
+	}
+	if (!(dst->filled & TAGS_RATING) && (src->filled & TAGS_RATING))
+	{
+		dst->rating = src->rating;
+		dst->filled |= TAGS_RATING;
+	}
 }
 
 struct file_tags *tags_new ()
@@ -100,6 +141,7 @@ struct file_tags *tags_new ()
 	tags->album = NULL;
 	tags->track = -1;
 	tags->time = -1;
+	tags->rating = -1;
 	tags->filled = 0;
 
 	return tags;
@@ -433,9 +475,9 @@ const char *plist_get_next_dead_entry (const struct plist *plist,
 	return NULL;
 }
 
-#define if_not_empty(str)	(tags && (str) && (*str) ? (str) : NULL)
+#define if_not_empty(str)	(tags && (str) && *(str) ? (str) : NULL)
 
-static char *title_expn_subs(char fmt, const struct file_tags *tags)
+static const char *title_expn_subs(char fmt, const struct file_tags *tags)
 {
 	static char track[16];
 
@@ -743,6 +785,29 @@ int get_item_time (const struct plist *plist, const int i)
 
 	if (plist->items[i].tags)
 		return plist->items[i].tags->time;
+
+	return -1;
+}
+
+/* Set the rating tags field for the item. */
+void plist_set_item_rating (struct plist *plist, const int num, const int rating)
+{
+	assert (plist != NULL);
+	assert (LIMIT(num, plist->num));
+
+	if (!plist->items[num].tags)
+		plist->items[num].tags = tags_new ();
+
+	plist->items[num].tags->rating = rating;
+	plist->items[num].tags->filled |= TAGS_RATING;
+}
+
+int get_item_rating (const struct plist *plist, const int i)
+{
+	assert (plist != NULL);
+
+	if (plist->items[i].tags)
+		return plist->items[i].tags->rating;
 
 	return -1;
 }
