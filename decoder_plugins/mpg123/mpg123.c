@@ -153,12 +153,13 @@ static void mpg123_tags (const char *file_name, struct file_tags *info, const in
 	int ch, enc;
 	long rate;
 	off_t samples;
+#if MPG123_API_VERSION < 46
 	mpg123_init();
+#endif
 	mf = mpg123_new (NULL, &res);
 	if (mf == NULL || mpg123_open (mf, file_name) != MPG123_OK || mpg123_getformat (mf,&rate,&ch,&enc) != MPG123_OK) {
 			logit ("Can't open file %s:", file_name);
 			mpg123_delete (mf);
-			mpg123_exit();
 			return;
 	}
 
@@ -173,7 +174,6 @@ static void mpg123_tags (const char *file_name, struct file_tags *info, const in
 	}
 
 	mpg123_delete (mf);
-	mpg123_exit();
 }
 
 static ssize_t read_cb (void *datasource, void *ptr, size_t bytes)
@@ -208,7 +208,9 @@ static void mpg123_open_stream_internal (struct mpg123_data *data)
 
 	data->tags = tags_new ();
 
+#if MPG123_API_VERSION < 46
 	mpg123_init();
+#endif
 
 	data->mf = mpg123_new (NULL, &res);
 
@@ -342,7 +344,6 @@ static void mpg123_closeX (void *prv_data)
 
 	if (data->ok) {
 		mpg123_delete (data->mf);
-		mpg123_exit();
 		io_close (data->stream);
 	}
 
