@@ -193,7 +193,8 @@ static off_t seek_cb (void *datasource, off_t offset, int whence)
 {
 	debug ("Seek request to %"PRId64" (%s)", (int64_t)offset,
 		whence == SEEK_SET ? "SEEK_SET" : (whence == SEEK_CUR ? "SEEK_CUR" : "SEEK_END"));
-	return io_seek (datasource, offset, whence)<0 ? -1 : 0;
+	off_t res = io_seek (datasource, offset, whence);
+	return res;
 }
 
 static void mpg123_open_stream_internal (struct mpg123_data *data)
