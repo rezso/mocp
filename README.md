@@ -15,8 +15,10 @@ This is fork of MOC (Music on Console) which tries to follow closely upstream de
 1. Possibility to use "~" in some options in config file
 1. Playlist behaviour changes - possibility to automatically enable shuffle for playlist and exporting relative playlists
 1. Inotify support
+1. Song ratings pulled from https://github.com/hilgenberg/moc.
+1. MPRIS support
 
 # Branches
 
+There are several even more experimental branches, including:
 * speex - introduces two new resampling methods: one is using speex and the other soxr.
-* ratings - includes song rating support pulled from https://github.com/hilgenberg/moc.
