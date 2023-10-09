@@ -2,13 +2,17 @@ themesdir = $(pkgdatadir)/themes
 themes_DATA = transparent-background \
 	      example_theme \
 	      nightly_theme \
-	      green_theme \
-	      yellow_red_theme \
-	      black_theme \
-	      moca_theme \
 	      red_theme \
-	      darkdot_theme \
 	      lcars \
 	      lcars2 \
-	      winter
+	      winter \
+	      blue_theme \
+	      green_theme \
+	      white_theme \
+	      black_theme \
+	      black_orange_theme \
+	      yellow_red_theme \
+	      moca_theme \
+	      darkdot_theme
+
 EXTRA_DIST = $(themes_DATA)
