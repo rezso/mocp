@@ -3771,7 +3771,7 @@ void interface_loop ()
 			handle_interrupt ();
 
 		if (!want_quit)
-			update_mixer_value ();
+			update_mixer_name ();
 	}
 
 	log_circular_log ();
