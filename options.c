@@ -784,6 +784,7 @@ void options_init ()
 	add_int  ("MaxSamplerate", 0, CHECK_RANGE(1), 0, 500000);
 	add_int  ("MaxChannels", 0, CHECK_RANGE(1), 0, 500000);
 	add_list ("MaskOutputFormats","",CHECK_NONE);
+	add_int  ("MixerBarWidth",  30, CHECK_RANGE(1), 10, INT_MAX);
 	add_bool ("UseRealtimePriority", false);
 	add_int  ("TagsCacheSize", 256, CHECK_RANGE(1), 0, INT_MAX);
 	add_bool ("PlaylistNumbering", true);
