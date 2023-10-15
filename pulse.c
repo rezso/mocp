@@ -208,9 +208,11 @@ static int pulse_init (struct output_driver_caps *caps)
 	 * only want mono or stereo audio.
 	 */
 	caps->min_channels = 1;
-	caps->max_channels = 2;
+	caps->max_channels = 6;
+	caps->min_rate = 0;
+	caps->max_rate = 192000;
 	caps->formats = (SFMT_S8 | SFMT_S16 | SFMT_S32 |
-			 SFMT_FLOAT | SFMT_BE | SFMT_LE);
+			 SFMT_FLOAT | SFMT_NE);
 
 	return 1;
 
@@ -272,6 +274,7 @@ static int pulse_open (struct sound_params *sound_params)
 	case SFMT_S16 | SFMT_BE:
 		ss.format = PA_SAMPLE_S16BE;
 		break;
+	case SFMT_FLOAT:
 	case SFMT_FLOAT | SFMT_LE:
 		ss.format = PA_SAMPLE_FLOAT32LE;
 		break;
