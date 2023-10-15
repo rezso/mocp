@@ -17,6 +17,8 @@ This is fork of MOC (Music on Console) which tries to follow closely upstream de
 1. Inotify support
 1. Song ratings pulled from https://github.com/hilgenberg/moc.
 1. MPRIS support
+1. Pulseaudio backend pulled from https://github.com/xdch47/moc
+1. FFmpeg > 4 support pulled from https://github.com/xdch47/moc (along with other minor fixes)
 
 # Branches
 
