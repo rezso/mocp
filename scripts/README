@@ -1,6 +1,6 @@
 Helper scripts:
 
-[*] moc-lyrics.tg.pl - fetches lyrics and saves them to a file.
+[*] moc_lyrics.tg.pl - fetches lyrics and saves them to a file.
 
 ExecCommand1 = "~/moc-lyrics.tg.pl -a %r -t %t -f %f"
 
@@ -13,3 +13,8 @@ http://www.red-bean.com/decklin/lastfmsubmitd/
 
 OnSongChange = "~/moc_submit_lastfm --artist %a --title %t --length %d --album %r"
 OnSongChange = "~/moc_simple.sh %a %t %d %r"
+
+[*] moc_play_rating.sh, ratings_find - plays all songs in a given directory with ratings in a specified range
+
+Usage: ratings_find min [max] dir
+ExecCommand5 = "~/.moc/moc_play_rating.sh 5 %d"
