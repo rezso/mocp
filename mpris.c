@@ -470,7 +470,7 @@ static void mpris_player_methods()
 		audio_next();
 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Previous")) {
 		audio_prev();
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "PlayPause")) {
+	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "PlayPause") || dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Pause")) {
 		switch (audio_get_state()) {
 			case STATE_PAUSE:
 				audio_unpause();
@@ -478,8 +478,6 @@ static void mpris_player_methods()
 			case STATE_PLAY:
 				audio_pause();
 		}
-	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Pause")) {
-		audio_pause();
 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Stop")) {
 		audio_stop();
 	} else if (dbus_message_is_method_call(msg, MPRIS_IFACE_PLAYER, "Play")) {
